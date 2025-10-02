@@ -1,0 +1,13 @@
+newspaper3k==0.2.8
+pandas==2.2.2
+lxml_html_clean
+trafilatura 
+yake
+matplotlib
+seaborn
+pandas 
+networkx 
+matplotlib 
+tqdm
+pyvis 
+pandas
