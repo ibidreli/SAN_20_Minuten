@@ -1,0 +1,402 @@
+---
+title: Cleaning
+jupyter: python3
+---
+
+
+
+## Daten Laden
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+```
+
+```{python}
+data = pd.read_csv("../data/20min_metadaten_keywords.csv")
+```
+
+## Übersicht der Daten
+
+```{python}
+data.info()
+```
+
+```{python}
+data.describe()
+```
+
+```{python}
+data.head()
+```
+
+```{python}
+data.sample(10, random_state=81)
+```
+
+### Fazit
+- Datum in ISO-8601 Datums- und Zeitformat
+- Autoren als Kürzel (2-3 Buchstaben) und mit vollen namen angegeben
+- Einige Artikel haben keine Likes
+- Einige Artikel haben keine Kommentare
+- Einige Artikel haben keine Shares
+- ```keywords``` und ```clean_terms``` sind mässig sinnvoll. Einige Standartwörter wie "Alter", "obersten" oder "the"
+- ```keywords``` sind identisch mit ```clean_terms``` wobei ```keywords``` noch eine Zahl beinhaltet
+
+>Da das Datafram noch keine ```id``` Spalte beinhaltet werde ich diese noch hinzufügen.
+
+```{python}
+# Hinzufügen von einer ID Spalte an 1. stelle
+data.insert(0, "id", range(1, len(data) + 1))
+```
+
+## Missing Values
+
+```{python}
+data.isna().sum()
+```
+
+### Nach ```beschreibung```
+
+```{python}
+# Anzeigen von Zeilen mit fehlenden beschreibung Werten
+data[data["beschreibung"].isna()]
+```
+
+### Nach ```autor```
+
+```{python}
+# Anzeigen von Zeilen mit fehlenden autor Werten
+data[data["autor"].isna()]
+```
+
+```{python}
+# Zeilen die fehlende autor Werte haben und kommentare_erlaubt = true sind
+data[(data["autor"].isna()) & (data["kommentare_erlaubt"] == True)]
+```
+
+```{python}
+# Plot: Zeitverteilung der Artikel nach Autoren-Kategorie
+data["datum"] = pd.to_datetime(data["datum"])
+data["jahr"] = data["datum"].dt.year
+data["monat"] = data["datum"].dt.month
+data["tag"] = data["datum"].dt.day
+
+# Kategorien definieren
+mask_missing = data["autor"].isna()
+mask_short = (~mask_missing) & (data["autor"].str.len() <= 3)
+mask_long = (~mask_missing) & (data["autor"].str.len() > 3)
+
+plt.figure(figsize=(12, 6))
+plt.hist(
+    [data[mask_missing]["jahr"], data[mask_short]["jahr"], data[mask_long]["jahr"]],
+    bins=range(2000, 2026),
+    stacked=True,
+    label=["Autor fehlt", "Kürzel (≤ 3 Zeichen)", "Voller Name (> 3 Zeichen)"],
+    edgecolor="black",
+    linewidth=0.5,
+    alpha=0.8,
+)
+
+plt.xlabel("Jahr")
+plt.ylabel("Anzahl Artikel")
+plt.title("Zeitverteilung der Artikel nach Autorentyp")
+plt.legend()
+plt.grid(axis="y", alpha=0.3)
+plt.show()
+```
+
+```{python}
+# Verteilung von Artikeln mit kein Autor, Kürzel (≤ 3 Zeichen) und voller Name (> 3 Zeichen) nach resort in Prozent
+
+# 1. Autorentyp bestimmen (basierend auf den Masken der vorherigen Zelle)
+data["author_type"] = "Kein Autor"
+data.loc[mask_short, "author_type"] = "Kürzel (≤ 3)"
+data.loc[mask_long, "author_type"] = "Voller Name (> 3)"
+
+# 2. Daten splittern
+df_pre_2020 = data[data["datum"].dt.year < 2020]
+df_post_2020 = data[data["datum"].dt.year >= 2020]
+
+
+# 3. Prozentverteilung pro Ressort berechnen
+def calculate_ressort_percentages(df):
+    # Kreuztabelle: Zeilen=Ressort, Spalten=Autorentyp
+    ct = pd.crosstab(df["ressort"], df["author_type"])
+    # Normalisieren auf 100% pro Zeile
+    return ct.div(ct.sum(axis=1), axis=0) * 100
+
+
+pct_pre = calculate_ressort_percentages(df_pre_2020)
+pct_post = calculate_ressort_percentages(df_post_2020)
+
+# Optional: Filtern von Ressorts mit sehr wenigen Artikeln, damit die Grafik sauber bleibt
+min_articles = 50
+ressorts_pre = df_pre_2020["ressort"].value_counts()
+ressorts_post = df_post_2020["ressort"].value_counts()
+valid_ressorts = ressorts_pre[ressorts_pre > min_articles].index.intersection(
+    ressorts_post[ressorts_post > min_articles].index
+)
+
+pct_pre = pct_pre.loc[valid_ressorts]
+pct_post = pct_post.loc[valid_ressorts]
+
+# Sortierung für bessere Lesbarkeit (z.B. nach Anteil "Voller Name")
+if "Voller Name (> 3)" in pct_pre.columns:
+    sort_order = pct_pre["Voller Name (> 3)"].sort_values().index
+    pct_pre = pct_pre.loc[sort_order]
+    pct_post = pct_post.reindex(sort_order)
+
+# 4. Plotten
+fig, axes = plt.subplots(1, 2, figsize=(16, 10), sharey=True)
+
+# Farbschema festlegen für Konsistenz
+colors = {"Kein Autor": "red", "Kürzel (≤ 3)": "orange", "Voller Name (> 3)": "green"}
+color_list = [colors.get(c, "gray") for c in pct_pre.columns]
+
+pct_pre.plot(kind="barh", stacked=True, ax=axes[0], color=color_list, width=0.8)
+axes[0].set_title(f"Vor 2020 (n={len(df_pre_2020)})")
+axes[0].set_xlabel("Anteil in %")
+axes[0].set_ylabel("Ressort")
+axes[0].legend(title="Autorentyp", loc="lower left")
+
+pct_post.plot(kind="barh", stacked=True, ax=axes[1], color=color_list, width=0.8)
+axes[1].set_title(f"Ab 2020 (n={len(df_post_2020)})")
+axes[1].set_xlabel("Anteil in %")
+axes[1].legend().remove()  # Legende nur einmal nötig
+
+plt.suptitle("Verteilung der Autorentypen pro Ressort", y=1.02, fontsize=16)
+plt.tight_layout()
+plt.show()
+
+# Entfernen von Authorentyp Spalte, da sie nur für die Analyse relevant war
+data.drop(columns=["author_type"], inplace=True)
+```
+
+```{python}
+# Summe von Artikeln mit Autor und Autor-länge > 3
+sum_long = mask_long.sum()
+print(f"Anzahl Artikel mit Autor und Autor-Länge > 3: {sum_long}")
+```
+
+### Nach ```likes```
+
+```{python}
+# Artikel die likes = NaN haben
+data[data["likes"].isna()]
+```
+
+```{python}
+# Plot: Zeitverteilung der Artikel nach Likes-Status (Vorhanden vs. Fehlend)
+
+# Kategorien definieren
+mask_likes_missing = data["likes"].isna()
+mask_likes_present = ~mask_likes_missing
+
+plt.figure(figsize=(12, 6))
+plt.hist(
+    [data[mask_likes_missing]["jahr"], data[mask_likes_present]["jahr"]],
+    bins=range(2000, 2026),
+    stacked=True,
+    label=["Likes fehlen", "Likes vorhanden"],
+    edgecolor="black",
+    linewidth=0.5,
+    alpha=0.8,
+    color=["red", "green"],
+)
+
+plt.xlabel("Jahr")
+plt.ylabel("Anzahl Artikel")
+plt.title("Zeitverteilung der Artikel nach Likes-Status")
+plt.legend()
+plt.grid(axis="y", alpha=0.3)
+plt.show()
+```
+
+```{python}
+# Von allen Artikeln ohne Likes soll nach keywords gruppiert werden, um zu sehen, ob es bestimmte Themen gibt, die häufiger keine Likes haben
+```
+
+```{python}
+# Häufigste Keywords bei Artikeln ohne Likes
+
+from collections import Counter
+
+# Artikel ohne Likes filtern
+df_no_likes = data[mask_likes_missing].copy()
+
+# Counter für Keywords initialisieren
+keyword_counts = Counter()
+
+# Keywords extrahieren und zählen (nutzt 'clean_terms' wenn vorhanden, sonst fallback oder string parsing)
+# Die Spalte 'clean_terms' enthält kommagetrennte Strings.
+# Wenn 'clean_terms' NaN ist, ignorieren wir die Zeile.
+clean_terms_series = df_no_likes["clean_terms"].dropna()
+
+for terms in clean_terms_series:
+    if isinstance(terms, str):
+        # Split am Komma und Whitespace entfernen
+        split_keywords = [k.strip() for k in terms.split(",")]
+        keyword_counts.update(split_keywords)
+
+# Top 20 Keywords
+most_common_df = pd.DataFrame(
+    keyword_counts.most_common(20), columns=["Keyword", "Anzahl"]
+)
+
+# Plotten
+plt.figure(figsize=(12, 6))
+plt.bar(
+    most_common_df["Keyword"],
+    most_common_df["Anzahl"],
+    color="skyblue",
+    edgecolor="black",
+)
+plt.xlabel("Keyword")
+plt.ylabel("Anzahl")
+plt.title(f"Top 20 Keywords bei Artikeln ohne Likes (n={len(df_no_likes)})")
+plt.xticks(rotation=45, ha="right")
+plt.grid(axis="y", alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+most_common_df
+```
+
+### Nach ```kommentare```
+
+```{python}
+# Alle unique Kombinationen von der kommentare_erlaubt
+data[data["kommentare_erlaubt"] == False]
+```
+
+```{python}
+# Plot: Zeitverteilung der Artikel nach kommentare_erlaubt-Status (Vorhanden vs. Fehlend)
+# Kategorien definieren
+mask_comments_allowed = data["kommentare_erlaubt"] == True
+mask_comments_not_allowed = ~mask_comments_allowed
+plt.figure(figsize=(12, 6))
+plt.hist(
+    [data[mask_comments_allowed]["jahr"], data[mask_comments_not_allowed]["jahr"]],
+    bins=range(2000, 2026),
+    stacked=True,
+    label=["Kommentare erlaubt", "Kommentare nicht erlaubt"],
+    edgecolor="black",
+    linewidth=0.5,
+    alpha=0.8,
+    color=["green", "red"],
+)
+plt.xlabel("Jahr")
+plt.ylabel("Anzahl Artikel")
+plt.title("Zeitverteilung der Artikel nach Kommentaren-Status")
+plt.legend()
+plt.grid(axis="y", alpha=0.3)
+plt.show()
+```
+
+### Fazit
+- Artikel
+  - Die Artikel ohne Beschreibung sind mehrheitlich Artikel die nur Bilder beinhalten. Diese können entfernt werden. Der Artikel mit der ```id``` = 356461 ist ein nicht vollständiger Artikel. 
+- Autoren
+  - Missing Autoren und Autoren mit Kürzel haben von Jahr zu Jahr abgenommen. 
+  - Ab dem Jahr 2020 haben die Autoren mit vollen Namen zugenommen. 
+    - Nach weiterer Analyse ist ersichtlich, dass dies jedoch nur in bestimmten ```resorts``` der Fall ist. 
+- Likes
+  - Wir sehen eine Zunahme von Artikeln ohne Likes in dem jahr 2020. Jedoch machen die Artikel ohne Likes einen Bruchteil aus.
+  - Die ```keywords``` Lifestyle, Fantasy, League, Wetter, Radio, Paper, Kreutsworträtsel, Channels, News und Services haben am meisten die Likes deaktiviert. 
+- Kommentare
+  - Ab dem Jahr 2020 wurden Kommentare aktiviert für einige Artikel. Im Schnitt sind die kommentare aktiviert für 50-70% der Artikel nach dem Jahr 2020. 
+
+
+>Alle Artikel mit fehlender Beschreibung werden entfernt
+>Alle Artikel mit Autor Kürzel und fehlenden Autoren werden auch entfernt. Diese entscheidung treffen wir, da der Datensatz enrom gross ist. So arbeiten wir mit sauberen Daten und weniger Daten, was die Analyse effizienter gestaltet.
+> Alle Artikel vor dem Jahr 2020 werden entfernt um den Datensatz ersichtlicher zu behalten.  
+
+```{python}
+# Entfernen von den Zeilen mit fehlenden autor Werten und Autoren mit Kürzel (≤ 3 Zeichen)
+data = data[mask_long]  # Behält nur Zeilen mit vollem Namen (> 3 Zeichen)
+```
+
+```{python}
+# Entfernen von den Zeilen mit fehlenden beschreibung Werten
+data = data.dropna(subset=["beschreibung"])
+```
+
+```{python}
+# Entfernen von Artikeln vor dem Jahr 2020
+data = data[data["datum"].dt.year >= 2020]
+```
+
+## Duplikate
+
+```{python}
+# Identifizieren und Zählen von Duplikaten in Object-Spalten
+
+# 1. Alle Spalten vom Typ 'object' (String) finden
+obj_cols = data.select_dtypes(include=["object"]).columns
+
+# 2. Summe der Duplikate pro Spalte anzeigen
+print("Anzahl der Duplikate pro Spalte (Typ: Object):")
+print("-" * 40)
+for col in obj_cols:
+    # `duplicated()` gibt True zurück, wenn der Wert schon mal vorkam.
+    # `.sum()` zählt alle True-Werte (= Anzahl der Duplikate nach dem ersten Vorkommen)
+    num_duplicates = data[col].duplicated().sum()
+    print(f"{col}: {num_duplicates}")
+```
+
+```{python}
+# Alle Zeilen mit Duplikaten in der 'titel' Spalte anzeigen
+duplicate_titles = data[data["titel"].duplicated(keep="first")]
+print(f"\nAnzahl der Zeilen mit duplizierten Titeln: {len(duplicate_titles)}")
+duplicate_titles[["id", "url", "titel", "beschreibung", "datum"]]
+```
+
+### Fazit
+- Nach genauerer Analyse scheint es so, dass die Duplikate ein Fehler von der 20min ist und nicht von dem Scraping tool. 
+
+## Plausibilität
+
+```{python}
+# Boxplot von likes, kommentare und shares
+plt.figure(figsize=(10, 6))
+data[["likes", "kommentare", "shares"]].boxplot()
+plt.title("Boxplot von Likes, Kommentaren und Shares")
+plt.ylabel("Anzahl")
+plt.grid(axis="y", alpha=0.3)
+plt.show()
+```
+
+```{python}
+# Ausgabe von dem Artikeln mit den meisten Likes
+top_likes = data.sort_values(by="likes", ascending=False).head(10)
+top_likes[["id", "url", "titel", "beschreibung", "likes"]]
+```
+
+```{python}
+# Ausgabe von dem Artikeln mit den meisten Kommentaren
+top_comments = data.sort_values(by="kommentare", ascending=False).head(10)
+top_comments[["id", "url", "titel", "beschreibung", "kommentare"]]
+```
+
+```{python}
+# Ausgabe von dem Artikeln mit den meisten Shares
+top_shares = data.sort_values(by="shares", ascending=False).head(10)
+top_shares[["id", "url", "titel", "beschreibung", "shares"]]
+```
+
+### Fazit
+- Bei de Artikeln mit hohen Kommentaren ist klar ersichtlich, dass Covid immer ein grosses thema ist. 
+- Bei likes und shares sind die Themen sehr vielfälltig. 
+
+# Übersicht nach dem Cleaning
+
+```{python}
+print(f"Nach dem Cleaning haben wir {len(data)} Artikel in unserem Datensatz.")
+```
+
+```{python}
+data.columns
+```
+
