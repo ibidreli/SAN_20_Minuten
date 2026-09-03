@@ -61,6 +61,19 @@ def build_bipartite_author_article(df):
     return B
 
 
+def _to_float(value):
+    """Converts a possibly-missing engagement value to float, with NA -> nan."""
+    return np.nan if pd.isna(value) else float(value)
+
+
+def _nanmean(values):
+    """Mean ignoring NaN. Returns nan when every value is missing."""
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0 or np.all(np.isnan(arr)):
+        return float('nan')
+    return float(np.nanmean(arr))
+
+
 def compute_author_ressort_profiles(df):
     """
     Computes for each author their total publication count, dominant ressort,
@@ -68,7 +81,10 @@ def compute_author_ressort_profiles(df):
     """
     ressort_idx = {r: i for i, r in enumerate(CANONICAL_RESSORTS)}
     author_counts = defaultdict(lambda: np.zeros(len(CANONICAL_RESSORTS), dtype=float))
-    author_latest_date = defaultdict(lambda: pd.Timestamp.min.tz_localize('UTC'))
+    # Latest publication date per (author, ressort), used to break ties for dominant_ressort
+    author_ressort_latest = defaultdict(
+        lambda: [pd.Timestamp.min.tz_localize('UTC')] * len(CANONICAL_RESSORTS)
+    )
     author_metrics = defaultdict(lambda: {'likes': [], 'shares': [], 'comments': []})
     
     for _, row in df.iterrows():
@@ -79,32 +95,94 @@ def compute_author_ressort_profiles(df):
         
         for a in authors:
             author_counts[a][res_i] += 1
-            if dt > author_latest_date[a]:
-                author_latest_date[a] = dt
-            author_metrics[a]['likes'].append(row['likes'])
-            author_metrics[a]['shares'].append(row['shares'])
-            author_metrics[a]['comments'].append(row['kommentare'])
+            if dt > author_ressort_latest[a][res_i]:
+                author_ressort_latest[a][res_i] = dt
+            # likes/shares/kommentare are nullable (missing != 0), so they are
+            # collected as float NaN and aggregated with nanmean below.
+            author_metrics[a]['likes'].append(_to_float(row['likes']))
+            author_metrics[a]['shares'].append(_to_float(row['shares']))
+            author_metrics[a]['comments'].append(_to_float(row['kommentare']))
             
     profiles = {}
     for a, counts in author_counts.items():
         total_arts = counts.sum()
         prob_vec = counts / total_arts
         
-        # Dominant ressort with deterministic tie-breaking
+        # Dominant ressort. Ties are broken by the most recent publication in the
+        # tied ressort; if those are equal too, by canonical order (fully deterministic).
         max_c = counts.max()
         best_indices = [i for i, c in enumerate(counts) if c == max_c]
-        dominant_res = CANONICAL_RESSORTS[best_indices[0]]
+        if len(best_indices) == 1:
+            dominant_res = CANONICAL_RESSORTS[best_indices[0]]
+        else:
+            latest = author_ressort_latest[a]
+            best_i = max(best_indices, key=lambda i: (latest[i], -i))
+            dominant_res = CANONICAL_RESSORTS[best_i]
         
         profiles[a] = {
             'article_count': int(total_arts),
             'dominant_ressort': dominant_res,
+            'ressort_counts': counts.copy(),
             'ressort_distribution': prob_vec,
-            'mean_likes': float(np.mean(author_metrics[a]['likes'])),
-            'mean_shares': float(np.mean(author_metrics[a]['shares'])),
-            'mean_comments': float(np.mean(author_metrics[a]['comments']))
+            'mean_likes': _nanmean(author_metrics[a]['likes']),
+            'mean_shares': _nanmean(author_metrics[a]['shares']),
+            'mean_comments': _nanmean(author_metrics[a]['comments'])
         }
         
     return profiles
+
+
+def leave_one_out_profile(profile, ressort):
+    """
+    Returns the author's ressort probability vector with one article of the given
+    ressort removed, or None if that article was the author's only one.
+
+    Required so that the JSD attached to article k is not computed from profiles
+    that already contain article k.
+    """
+    idx = CANONICAL_RESSORTS.index(ressort) if ressort in CANONICAL_RESSORTS \
+        else CANONICAL_RESSORTS.index('Andere')
+    counts = profile['ressort_counts'].copy()
+    counts[idx] -= 1.0
+    total = counts.sum()
+    if total <= 0:
+        return None
+    return counts / total
+
+
+def compute_leave_one_out_jsd(df, profiles):
+    """
+    For every multi-author article k, the mean pairwise Jensen-Shannon divergence
+    between its co-authors' ressort profiles with article k itself removed.
+
+    Returns {article_id: mean_jsd}. Articles where any co-author has no remaining
+    article after removal are omitted, since their profile is undefined.
+    """
+    result = {}
+    multi_df = df[df['author_count'] > 1]
+
+    for _, row in multi_df.iterrows():
+        auths = [a for a in row['authors_clean'] if a in profiles]
+        if len(auths) < 2:
+            continue
+
+        loo_vectors = {}
+        for a in auths:
+            vec = leave_one_out_profile(profiles[a], row['ressort'])
+            if vec is None:
+                loo_vectors = None
+                break
+            loo_vectors[a] = vec
+        if loo_vectors is None:
+            continue
+
+        pairwise = [
+            compute_jsd(loo_vectors[u], loo_vectors[v])
+            for u, v in itertools.combinations(auths, 2)
+        ]
+        result[row['article_id']] = float(np.mean(pairwise))
+
+    return result
 
 
 def compute_jsd(p, q):
@@ -305,7 +383,11 @@ def create_rolling_link_prediction_windows(df):
                     
         # All eligible unconnected pairs
         all_candidate_pairs = set(itertools.combinations(candidate_nodes, 2))
-        train_existing_edges = set(G_train.edges())
+        # G_train.edges() yields tuples in node-insertion order, whereas
+        # all_candidate_pairs comes from combinations(sorted(...)). Without
+        # normalising, reversed tuples never match and real training edges
+        # survive the set difference as false negatives.
+        train_existing_edges = {tuple(sorted(e)) for e in G_train.edges()}
         eligible_non_edges = all_candidate_pairs - train_existing_edges
         
         neg_edges = eligible_non_edges - new_edges
@@ -321,6 +403,41 @@ def create_rolling_link_prediction_windows(df):
         })
         
     return eval_splits
+
+
+# -------------------------------------------------------------------------
+# 3b. Graph Export
+# -------------------------------------------------------------------------
+
+def export_graph_gexf(G, path):
+    """
+    Writes G to a GEXF file for Gephi.
+
+    GEXF only accepts scalar attribute values, so numpy arrays (such as the
+    ressort_distribution probability vector) and numpy scalar types have to be
+    converted first. Arrays are serialised as comma-separated strings and the
+    original graph is left untouched.
+    """
+    def _coerce(value):
+        if isinstance(value, np.ndarray):
+            return ','.join(f'{x:.6f}' for x in value.ravel())
+        if isinstance(value, (list, tuple)):
+            return ','.join(str(x) for x in value)
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        return value
+
+    H = nx.Graph() if not G.is_directed() else nx.DiGraph()
+    H.graph.update({k: _coerce(v) for k, v in G.graph.items()})
+    for n, data in G.nodes(data=True):
+        H.add_node(n, **{k: _coerce(v) for k, v in data.items()})
+    for u, v, data in G.edges(data=True):
+        H.add_edge(u, v, **{k: _coerce(v_) for k, v_ in data.items()})
+
+    nx.write_gexf(H, path)
+    return path
 
 
 # -------------------------------------------------------------------------
@@ -387,6 +504,93 @@ def run_synthetic_unit_tests():
         assert G_knn.has_edge(v, u), 'Mutual k-NN must be symmetric'
         assert G_knn[u][v]['distance'] > 0, 'Distance must be positive'
     print('  [PASS] Mutual k-NN graph invariants passed.')
+
+    # 4. Regression: training edges must never appear in the negative set.
+    # G.edges() returns tuples in insertion order, so an unsorted set difference
+    # silently leaves real edges in the negatives.
+    G_leak = nx.Graph()
+    G_leak.add_edge('Zoe', 'Adam')      # inserted as ('Zoe', 'Adam'), i.e. reversed
+    G_leak.add_edge('Adam', 'Mia')
+    nodes_leak = sorted(G_leak.nodes())
+    all_pairs_leak = set(itertools.combinations(nodes_leak, 2))
+    normalised = {tuple(sorted(e)) for e in G_leak.edges()}
+    non_edges = all_pairs_leak - normalised
+    for u, v in G_leak.edges():
+        assert tuple(sorted([u, v])) not in non_edges, \
+            'Training edge leaked into the negative set'
+    assert len(non_edges) == len(all_pairs_leak) - G_leak.number_of_edges(), \
+        'Negative set has the wrong cardinality'
+    print('  [PASS] Link-prediction negative set excludes all training edges.')
+
+    # 5. Dominant-ressort tie-break must follow the most recent publication date,
+    # not the position in CANONICAL_RESSORTS.
+    tie_df = pd.DataFrame([
+        {
+            'article_id': 1, 'authors_clean': ['Tie Breaker'], 'author_count': 1,
+            'year': 2020, 'ressort': CANONICAL_RESSORTS[0],
+            'datum': pd.Timestamp('2020-01-01', tz='UTC'),
+            'likes': 0, 'shares': 0, 'kommentare': 0
+        },
+        {
+            'article_id': 2, 'authors_clean': ['Tie Breaker'], 'author_count': 1,
+            'year': 2021, 'ressort': CANONICAL_RESSORTS[1],
+            'datum': pd.Timestamp('2021-06-01', tz='UTC'),
+            'likes': 0, 'shares': 0, 'kommentare': 0
+        }
+    ])
+    tie_profiles = compute_author_ressort_profiles(tie_df)
+    assert tie_profiles['Tie Breaker']['dominant_ressort'] == CANONICAL_RESSORTS[1], \
+        'Tie must be broken by most recent publication, not by canonical order'
+    print('  [PASS] Dominant-ressort tie-break uses the most recent publication.')
+
+    # 6. GEXF export must survive numpy node attributes (ressort_distribution).
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        gexf_path = os.path.join(tmpdir, 'toy.gexf')
+        export_graph_gexf(G_toy, gexf_path)
+        G_back = nx.read_gexf(gexf_path)
+        assert G_back.number_of_nodes() == G_toy.number_of_nodes(), 'GEXF lost nodes'
+        assert G_back.number_of_edges() == G_toy.number_of_edges(), 'GEXF lost edges'
+        assert 'ressort_distribution' in G_back.nodes['Alice'], \
+            'GEXF export dropped ressort_distribution'
+    print('  [PASS] GEXF export handles numpy attributes.')
+
+    # 7. Leave-one-out JSD must exclude the article it is attached to.
+    loo_df = pd.DataFrame([
+        {
+            'article_id': 1, 'authors_clean': ['Ann', 'Ben'], 'author_count': 2,
+            'year': 2020, 'ressort': 'Sport',
+            'datum': pd.Timestamp('2020-01-01', tz='UTC'),
+            'likes': 0, 'shares': 0, 'kommentare': 0
+        },
+        {
+            'article_id': 2, 'authors_clean': ['Ann'], 'author_count': 1,
+            'year': 2020, 'ressort': 'Schweiz',
+            'datum': pd.Timestamp('2020-02-01', tz='UTC'),
+            'likes': 0, 'shares': 0, 'kommentare': 0
+        },
+        {
+            'article_id': 3, 'authors_clean': ['Ben'], 'author_count': 1,
+            'year': 2020, 'ressort': 'Wirtschaft',
+            'datum': pd.Timestamp('2020-03-01', tz='UTC'),
+            'likes': 0, 'shares': 0, 'kommentare': 0
+        }
+    ])
+    loo_profiles = compute_author_ressort_profiles(loo_df)
+    # Naive (leaky) JSD: both profiles contain the shared Sport article
+    naive = compute_jsd(loo_profiles['Ann']['ressort_distribution'],
+                        loo_profiles['Ben']['ressort_distribution'])
+    loo = compute_leave_one_out_jsd(loo_df, loo_profiles)
+    # With article 1 removed, Ann is purely Schweiz and Ben purely Wirtschaft -> JSD = 1
+    assert abs(loo[1] - 1.0) < 1e-6, f'Leave-one-out JSD must be 1.0, got {loo[1]}'
+    assert loo[1] > naive, 'Leave-one-out JSD must differ from the leaky variant'
+    assert leave_one_out_profile(loo_profiles['Ann'], 'Sport') is not None
+    # An author with a single article has no defined leave-one-out profile
+    single = compute_author_ressort_profiles(loo_df[loo_df['article_id'] == 3])
+    assert leave_one_out_profile(single['Ben'], 'Wirtschaft') is None, \
+        'Single-article author must yield no leave-one-out profile'
+    print('  [PASS] Leave-one-out JSD excludes the focal article.')
+
     print('All unit tests passed successfully!')
 
 if __name__ == '__main__':

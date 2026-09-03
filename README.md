@@ -37,7 +37,7 @@ python -m spacy download de_core_news_sm   # nur fuer die Extraktionspipeline
 | `src/clean_dataset.py` | Cleaning-Skript, erzeugt das Parquet. Nur ausfuehren, nie importieren (siehe offene Punkte) |
 | `src/network_models.py` | Graphkonstruktion, Metriken, Link-Prediction |
 | `src/02_analyse.ipynb` | Hauptanalyse-Notebook (generiert, siehe unten) |
-| `scripts/` | Notebook-Generierung und headless Ausfuehrung |
+| `scripts/` | Notebook-Generierung, headless Ausfuehrung, Manifest-Erzeugung |
 | `out_plots/` | Erzeugte Abbildungen fuer den Bericht |
 | `graphen/` | Exportierte `.gexf`-Graphen fuer Gephi |
 | `docs/` | Meilensteindokument, Bewertungsraster, Modulbeschreibung |
@@ -55,42 +55,58 @@ Ausfuehrungsreihenfolge, jeweils **vom Repository-Wurzelverzeichnis** aus:
 python src/clean_dataset.py              # Rohdaten -> data/20min_cleaned_post2020.parquet
 python scripts/build_analysis_notebook.py  # erzeugt src/02_analyse.ipynb
 python scripts/run_notebook.py           # fuehrt das Notebook headless aus
+python scripts/build_manifest.py         # aktualisiert die Hashes in data/manifest.json
+python scripts/build_manifest.py --check # prueft Rohdaten und Parquet gegen das Manifest
+```
+
+Die Unit-Tests der Netzwerkmodelle laufen mit:
+
+```bash
+python src/network_models.py
 ```
 
 Die Quarto-Dokumente in `src/` verwenden dagegen dokumentrelative Pfade
 (`../data/...`) und werden mit `quarto render src/01_cleaning.qmd` gerendert.
 
-## Bekannte offene Punkte
+## Stand der Code-Review-Befunde
 
-Ein Code-Review hat folgende Punkte identifiziert, die noch **nicht** behoben
-sind. Die Zahlen in `src/02_analyse.ipynb` und in den Abbildungen sind davon
-betroffen und noch nicht final:
+Ein Code-Review hatte acht Befunde ergeben. Alle sind behoben und durch Tests
+in `src/network_models.py` abgesichert (`python src/network_models.py`):
 
-1. `src/network_models.py`: Beim Aufbau der Negativmenge fuer die
-   Link-Prediction werden Trainingskanten nicht zuverlaessig ausgeschlossen,
-   da Kantentupel nicht sortiert verglichen werden. Dadurch landen echte
-   Kanten in der Negativmenge und PR-AUC sowie Precision@k sind zu tief.
-2. `scripts/build_analysis_notebook.py`: Die als "Leave-One-Out JSD"
-   bezeichnete Regression ist keine, da die Autorenprofile ueber den gesamten
-   Korpus gebildet werden. Der Artikel k ist in seinem eigenen Profil enthalten.
-3. `src/network_models.py`: Der Tie-Break fuer `dominant_ressort` erfolgt ueber
-   die Position in der kanonischen Ressortliste statt, wie dokumentiert, ueber
-   das juengste Publikationsdatum.
-4. Die `.gexf`-Dateien in `graphen/` lassen sich mit dem aktuellen Code nicht
-   reproduzieren: `nx.write_gexf` scheitert am numpy-Knotenattribut
-   `ressort_distribution`.
-5. p-Werte und Signifikanzaussagen sind im Notebook teilweise als Stringliteral
-   hinterlegt statt aus den berechneten Werten abgeleitet.
-6. Fehlende Interaktionswerte (Likes, Kommentare) werden in
-   `src/clean_dataset.py` zu 0 statt zu `NaN`.
-7. `src/clean_dataset.py` ist ein flaches Skript ohne
-   `if __name__ == "__main__":`-Guard. Ein blosser Import fuehrt die
-   gesamte Pipeline aus und ueberschreibt das Parquet.
-8. `src/clean_dataset.py` sortiert mit dem instabilen Standard-Sort und
-   vergibt `article_id` danach fortlaufend. Artikel mit identischem
-   Zeitstempel erhalten pro Lauf andere IDs, das Parquet ist damit nicht
-   bit-identisch reproduzierbar. `data/manifest.json` deckt nur die
-   Rohdaten ab, nicht das Parquet.
+| # | Befund | Behebung |
+|---|---|---|
+| 1 | Trainingskanten landeten in der Negativmenge der Link-Prediction, da Kantentupel unsortiert verglichen wurden | Normalisierung auf sortierte Tupel; Regressionstest |
+| 2 | Die als „Leave-One-Out JSD“ bezeichnete Regression war keine (Artikel k war in seinem eigenen Prädiktor enthalten) | `compute_leave_one_out_jsd` implementiert und im Notebook verwendet |
+| 3 | Tie-Break für `dominant_ressort` erfolgte über die Position in der kanonischen Ressortliste | Tie-Break über das juengste Publikationsdatum im jeweiligen Ressort |
+| 4 | `graphen/*.gexf` liessen sich mit keinem Code im Repository reproduzieren | `export_graph_gexf` plus Notebook-Zelle 2.6 |
+| 5 | Die Signifikanzaussage zum Bootstrap-CI wurde unabhaengig vom Intervall gedruckt | Aussage wird aus `ci_low`/`ci_high` abgeleitet; bester Algorithmus wird berechnet |
+| 6 | p-Werte in Plot-Legenden waren Stringliterale („p < 0.002“ bei tatsaechlich p = 0.00200) | Legenden werden aus den berechneten p-Werten erzeugt |
+| 7 | Fehlende Interaktionswerte wurden zu 0 statt zu `NaN` | Nullable `Int64`; Aggregation mit `nanmean` |
+| 8 | `article_id` war nicht reproduzierbar (instabiler Sort), Manifest deckte das Parquet nicht ab | Stabiler Sort auf `(datum, url)`; `scripts/build_manifest.py` hasht auch das Parquet |
+
+Zwei weitere Punkte kamen bei der Behebung dazu:
+
+- **Precision@k** wurde innerhalb grosser Gruppen identischer Scores durch die
+  Array-Position entschieden. Jetzt fest geseedeter Tie-Break via `np.lexsort`.
+- Das **Two-Mode-Netzwerk** wurde nur aus Mehrautoren-Artikeln gebaut und war
+  damit ein gefilterter Teilgraph. Jetzt ueber alle Artikel mit Autorenschaft.
+
+### Auswirkungen auf die Resultate
+
+Die Zahlen haben sich durch die Korrekturen spuerbar verschoben:
+
+- 41.4% der Kommentarwerte (48'970 Artikel) waren zuvor faelschlich 0.
+- 1'573 Autorennamen wurden durch `capitalize()` beschaedigt
+  („Patrick McEvily“ zu „Patrick Mcevily“). Autorennamen sind Knoten-IDs.
+- PR-AUC der Link-Prediction im finalen Fenster: 0.1865 statt zuvor 0.1230,
+  Precision@20 0.55 statt eines Tie-Artefakts.
+- Assortativitaet r = 0.3672 (zuvor 0.3698).
+
+### Verbleibende Einschraenkung
+
+`src/clean_dataset.py` ist ein flaches Skript ohne
+`if __name__ == "__main__":`-Guard. Ein Import fuehrt die gesamte Pipeline aus.
+Das Skript ist zum Ausfuehren gedacht, nicht zum Importieren.
 
 ## Hinweis zur Nutzung von KI-Werkzeugen
 

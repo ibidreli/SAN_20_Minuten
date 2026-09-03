@@ -55,6 +55,8 @@ from src.network_models import (
     extract_global_vocabulary,
     build_annual_keyword_graph,
     create_rolling_link_prediction_windows,
+    compute_leave_one_out_jsd,
+    export_graph_gexf,
     CANONICAL_RESSORTS
 )
 
@@ -75,20 +77,17 @@ print(f'Zeitraum: {df["datum"].min().strftime("%Y-%m-%d")} bis {df["datum"].max(
 print(f'Multi-Autor-Artikel: {(df["author_count"] > 1).sum():,} ({(df["author_count"] > 1).mean():.1%})')
 """))
 
-cells.append(nbf.v4.new_code_cell("""# Bipartites Netzwerk aufbauen
+cells.append(nbf.v4.new_code_cell("""# Bipartites Netzwerk aufbauen (LE3)
+# Das Two-Mode-Netzwerk umfasst ALLE Artikel mit mindestens einer Autorenschaft.
+# Eine Beschränkung auf Mehrautoren-Artikel wäre ein gefilterter Teilgraph und
+# würde die Anzahl der Autoren- und Artikelknoten unterschätzen.
 multi_df = df[df['author_count'] > 1].copy()
-B = nx.Graph()
-
-for _, row in multi_df.iterrows():
-    art_node = f"art_{row['article_id']}"
-    B.add_node(art_node, bipartite=1, ressort=row['ressort'], year=row['year'])
-    for auth in row['authors_clean']:
-        B.add_node(auth, bipartite=0)
-        B.add_edge(auth, art_node)
+B = build_bipartite_author_article(df)
 
 n_authors = sum(1 for n, d in B.nodes(data=True) if d['bipartite'] == 0)
 n_articles = sum(1 for n, d in B.nodes(data=True) if d['bipartite'] == 1)
-print(f'Bipartiter Graph: {n_authors:,} Autoren-Knoten, {n_articles:,} Artikel-Knoten, {B.number_of_edges():,} Kanten')
+print(f'Bipartiter Graph (alle Artikel mit Autorenschaft): {n_authors:,} Autoren-Knoten, {n_articles:,} Artikel-Knoten, {B.number_of_edges():,} Kanten')
+print(f'Davon Mehrautoren-Artikel: {len(multi_df):,} ({len(multi_df) / max(n_articles, 1):.1%} der Artikelknoten)')
 
 # One-Mode-Projektion nach Newman (2001)
 # Kanten-Gewichtung: w_ij = sum_{k} 1 / (|U_k| - 1)
@@ -180,13 +179,17 @@ for b in range(B_PERM):
     perm_r[b] = nx.attribute_assortativity_coefficient(G_perm, 'dominant_ressort')
 
 p_val_assort = (np.sum(perm_r >= r_obs) + 1) / (B_PERM + 1)
+# Smallest p-value this permutation design can resolve
+p_floor_assort = 1.0 / (B_PERM + 1)
+p_txt_assort = (f'p < {p_floor_assort:.4f}' if p_val_assort <= p_floor_assort
+                else f'p = {p_val_assort:.4f}')
 print(f'Nullmodell (B={B_PERM}): Mean r_null = {perm_r.mean():.4f}, Std = {perm_r.std():.4f}')
 print(f'Empirischer p-Wert: p = {p_val_assort:.5f}')
 
 # Plot Permutation Distribution
 plt.figure(figsize=(9, 5))
 plt.hist(perm_r, bins=40, color='lightgray', edgecolor='black', alpha=0.7, density=True, label='Nullmodell (zufällige Ressortzuordnung)')
-plt.axvline(r_obs, color='crimson', linestyle='--', linewidth=2.5, label=f'Beobachtetes r = {r_obs:.3f} (p < 0.001)')
+plt.axvline(r_obs, color='crimson', linestyle='--', linewidth=2.5, label=f'Beobachtetes r = {r_obs:.3f} ({p_txt_assort})')
 plt.title(f'Hypothesentest 1A: Ressort-Homophilie (Newman r) vs. Permutations-Nullmodell (B={B_PERM})')
 plt.xlabel('Assortativitätskoeffizient r')
 plt.ylabel('Dichte')
@@ -216,12 +219,15 @@ for b in range(B_REWIRE):
     rewired_mean_jsd[b] = np.mean(jsd_vals)
 
 p_val_jsd = (np.sum(rewired_mean_jsd <= mean_jsd_obs) + 1) / (B_REWIRE + 1)
+p_floor_jsd = 1.0 / (B_REWIRE + 1)
+p_txt_jsd = (f'p < {p_floor_jsd:.4f}' if p_val_jsd <= p_floor_jsd
+             else f'p = {p_val_jsd:.4f}')
 print(f'Gradtreues Nullmodell (Maslov-Sneppen): Mean JSD_null = {rewired_mean_jsd.mean():.4f}')
 print(f'Empirischer p-Wert (geringere JSD als bei zufälligem Matching): p = {p_val_jsd:.5f}')
 
 plt.figure(figsize=(9, 5))
 plt.hist(rewired_mean_jsd, bins=30, color='skyblue', edgecolor='black', alpha=0.7, density=True, label='Gradtreues Nullmodell (Rewired Edges)')
-plt.axvline(mean_jsd_obs, color='darkblue', linestyle='--', linewidth=2.5, label=f'Beobachtete Mean JSD = {mean_jsd_obs:.3f} (p < 0.002)')
+plt.axvline(mean_jsd_obs, color='darkblue', linestyle='--', linewidth=2.5, label=f'Beobachtete Mean JSD = {mean_jsd_obs:.3f} ({p_txt_jsd})')
 plt.title('Hypothesentest 1B: Interdisziplinäre Kanten-Divergenz (JSD) vs. Maslov-Sneppen Nullmodell')
 plt.xlabel('Mittlere Jensen-Shannon-Divergenz (JSD)')
 plt.ylabel('Dichte')
@@ -232,30 +238,40 @@ plt.show()
 """))
 
 cells.append(nbf.v4.new_code_cell("""# 2.4 Sekundäre Assoziationsanalyse: Leave-One-Out JSD vs. Leser-Shares (OLS)
+# Die JSD für Artikel k wird aus Autorenprofilen berechnet, aus denen Artikel k
+# zuvor entfernt wurde. Ohne diesen Schritt ist der Artikel in seinem eigenen
+# Prädiktor enthalten (Leakage).
 author_profiles = compute_author_ressort_profiles(df)
+loo_jsd_by_article = compute_leave_one_out_jsd(df, author_profiles)
+print(f'Leave-One-Out JSD berechnet für {len(loo_jsd_by_article)} Mehrautoren-Artikel')
 
 multi_art_records = []
+n_skipped = 0
 for _, row in multi_df.iterrows():
     auths = [a for a in row['authors_clean'] if a in author_profiles]
     if len(auths) < 2:
         continue
-    
-    pairwise_jsds = []
-    for u, v in itertools.combinations(auths, 2):
-        pairwise_jsds.append(compute_jsd(author_profiles[u]['ressort_distribution'], author_profiles[v]['ressort_distribution']))
-        
+
+    # Artikel, bei denen ein Koautor nach Entfernung kein Profil mehr hat,
+    # sind hier nicht definiert und werden ausgeschlossen.
+    mean_jsd = loo_jsd_by_article.get(row['article_id'])
+    if mean_jsd is None:
+        n_skipped += 1
+        continue
+
     multi_art_records.append({
         'article_id': row['article_id'],
         'year': str(row['year']),
         'ressort': row['ressort'],
         'team_size': len(auths),
-        'mean_jsd': np.mean(pairwise_jsds),
+        'mean_jsd': mean_jsd,
         'shares': row['shares'],
         'log_shares': np.log1p(row['shares']),
         'log_comments': np.log1p(row['kommentare']),
         'likes': row['likes']
     })
 
+print(f'Ausgeschlossen (Koautor ohne verbleibende Artikel): {n_skipped}')
 art_reg_df = pd.DataFrame(multi_art_records)
 
 # OLS Regression mit Kontrollvariablen für Jahr, Ressort und Teamgrösse
@@ -272,7 +288,7 @@ sns.regplot(
     line_kws={'color': 'crimson', 'linewidth': 2}
 )
 plt.title('Sekundäre Assoziation: Interdisziplinäre Kanten-Divergenz (JSD) vs. log(1 + Shares)')
-plt.xlabel('Team-Mittelwert der Jensen-Shannon-Divergenz (JSD)')
+plt.xlabel('Team-Mittelwert der Leave-One-Out Jensen-Shannon-Divergenz (JSD)')
 plt.ylabel('log(1 + Shares)')
 plt.tight_layout()
 plt.savefig('out_plots/05_interdisciplinary_jsd_shares_regression.png', dpi=300)
@@ -402,6 +418,22 @@ print('=== TOP LOUVAIN THEMEN-CLUSTER 2024 (Normalisierung) ===')
 print(get_top_cluster_terms(G_2024, part_2024).to_string())
 """))
 
+cells.append(nbf.v4.new_code_cell("""# 2.6 Export der Graphen nach GEXF für Gephi
+# export_graph_gexf konvertiert numpy-Attribute (u.a. ressort_distribution) in
+# GEXF-zulässige Skalare. nx.write_gexf allein scheitert an diesen Attributen.
+import os
+os.makedirs('graphen', exist_ok=True)
+
+exports = [
+    (G_collab, 'graphen/author_collaboration_2020_2024.gexf'),
+    (G_2020, 'graphen/keyword_network_2020.gexf'),
+    (G_2024, 'graphen/keyword_network_2024.gexf')
+]
+for G_exp, path in exports:
+    export_graph_gexf(G_exp, path)
+    print(f'{path}: {G_exp.number_of_nodes():,} Knoten, {G_exp.number_of_edges():,} Kanten')
+"""))
+
 # Chapter 4: Pillar 3
 cells.append(nbf.v4.new_markdown_cell("""## 4. Pfeiler 3: Rolling Temporal Link-Prediction im Koautorenschafts-Netzwerk (LE8)
 
@@ -461,8 +493,13 @@ def evaluate_link_prediction(split):
         fpr, tpr, _ = roc_curve(y_true, scores)
         roc_auc = auc(fpr, tpr)
         
-        # Precision@k
-        k_indices = np.argsort(scores)[::-1]
+        # Precision@k. CN und JC erzeugen grosse Gruppen identischer Scores;
+        # argsort würde diese nach Array-Position auflösen, was das Ergebnis von
+        # der Zeilenreihenfolge abhängig macht. Deterministischer, unverzerrter
+        # Tie-Break über einen fest geseedeten Zufallsschlüssel.
+        tie_rng = np.random.default_rng(42)
+        tie_key = tie_rng.random(len(scores))
+        k_indices = np.lexsort((tie_key, -np.asarray(scores, dtype=float)))
         p_at_20 = y_true[k_indices[:20]].mean()
         p_at_50 = y_true[k_indices[:50]].mean()
         p_at_100 = y_true[k_indices[:100]].mean()
@@ -550,7 +587,21 @@ for b in range(B_BOOT):
 
 ci_low, ci_high = np.percentile(diffs, [2.5, 97.5])
 print(f'Bootstrap 95%-Konfidenzintervall für Differenz [PR-AUC(AA) - PR-AUC(PA)]: [{ci_low:.4f}, {ci_high:.4f}]')
-print(f'Ergebnis: Adamic-Adar übertrifft Preferential Attachment statistisch hochsignifikant (Nullhypothese 0 nicht im CI).')
+
+# Der Befund wird aus dem Intervall abgeleitet, nicht vorweggenommen.
+if ci_low > 0:
+    print('Ergebnis: Adamic-Adar übertrifft Preferential Attachment signifikant (0 liegt unterhalb des 95%-CI).')
+elif ci_high < 0:
+    print('Ergebnis: Preferential Attachment übertrifft Adamic-Adar signifikant (0 liegt oberhalb des 95%-CI).')
+else:
+    print('Ergebnis: Kein signifikanter Unterschied zwischen Adamic-Adar und Preferential Attachment (0 liegt im 95%-CI).')
+
+# Bester Algorithmus nach PR-AUC, statt einer fest verdrahteten Annahme
+best_algo = max(
+    ((n, r['PR-AUC (Avg Precision)']) for n, r in res_final.items()),
+    key=lambda x: x[1]
+)
+print(f'Bester Algorithmus im finalen Fenster nach PR-AUC: {best_algo[0]} ({best_algo[1]:.4f})')
 """))
 
 # Chapter 5: Synthesis & Evidence Map

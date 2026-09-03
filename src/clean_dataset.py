@@ -44,8 +44,17 @@ def clean_author_field(raw_val):
             continue
         if len(p) <= 3:
             continue
-        # Standardize name title casing
-        cleaned_name = ' '.join(w.capitalize() for w in p.split())
+        # Preserve the byline casing from the source. Blanket capitalize() would
+        # corrupt 1573 distinct names ('Patrick McEvily' -> 'Patrick Mcevily',
+        # 'Michelle de Oliveira' -> 'Michelle De Oliveira', 'Jean-Claude' ->
+        # 'Jean-claude'). Author strings are network node keys, so this matters.
+        # Only ALL CAPS bylines (24 in the corpus) are normalised.
+        if p.isupper():
+            cleaned_name = ' '.join(
+                '-'.join(s.capitalize() for s in w.split('-')) for w in p.split()
+            )
+        else:
+            cleaned_name = ' '.join(p.split())
         cleaned_authors.append(cleaned_name)
         
     return cleaned_authors, has_agency
@@ -95,9 +104,12 @@ for chunk in pd.read_csv(RAW_PATH, chunksize=50000, low_memory=False):
     chunk['clean_terms_list'] = chunk['clean_terms'].apply(parse_terms)
     
     # 6. Engagement & Comments numeric cleaning
+    # Missing values stay missing. Filling with 0 would conflate 'interaction
+    # disabled / not scraped' with 'zero likes'; 01_cleaning.qmd shows the
+    # missingness is systematic (concentrated in 2020 and in certain keywords),
+    # not random. Int64 is the nullable integer dtype.
     for col in ['likes', 'shares', 'kommentare']:
-        chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(0).astype('int64')
-        chunk[col] = chunk[col].clip(lower=0)
+        chunk[col] = pd.to_numeric(chunk[col], errors='coerce').clip(lower=0).astype('Int64')
         
     chunk['kommentare_erlaubt'] = chunk['kommentare_erlaubt'].astype(str).str.lower().isin(['true', '1', 'yes'])
     
@@ -120,8 +132,10 @@ for chunk in pd.read_csv(RAW_PATH, chunksize=50000, low_memory=False):
 clean_df = pd.concat(chunks, ignore_index=True)
 clean_df['year'] = clean_df['datum'].dt.year.astype('int16')
 
-# Sort chronologically
-clean_df = clean_df.sort_values('datum').reset_index(drop=True)
+# Sort chronologically. The default quicksort is not stable, so articles sharing
+# a timestamp got different ids on every run and the parquet hash was not
+# reproducible. Sorting on (datum, url) with a stable kind makes the order total.
+clean_df = clean_df.sort_values(['datum', 'url'], kind='mergesort').reset_index(drop=True)
 clean_df['article_id'] = clean_df.index + 1
 
 # Export to parquet

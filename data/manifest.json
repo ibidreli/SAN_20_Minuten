@@ -2,19 +2,24 @@
   "data/20min_artikel_neu.csv": {
     "size_bytes": 44154550,
     "size_mb": 42.11,
-    "line_count": 449414,
-    "sha256": "374d43f2f0cf241fba458487e583d254baed3984f063593883f34a3cf2e55c70"
+    "sha256": "374d43f2f0cf241fba458487e583d254baed3984f063593883f34a3cf2e55c70",
+    "line_count": 449414
   },
   "data/20min_artikel_sortiert.csv": {
     "size_bytes": 44127604,
     "size_mb": 42.08,
-    "line_count": 449191,
-    "sha256": "e8fbf355521e2358772ce245e772ec5f0a4328ad0b874f9ab2b282592a1dcb67"
+    "sha256": "e8fbf355521e2358772ce245e772ec5f0a4328ad0b874f9ab2b282592a1dcb67",
+    "line_count": 449191
   },
   "data/20min_metadaten_keywords.csv": {
     "size_bytes": 251832377,
     "size_mb": 240.17,
-    "line_count": 449180,
-    "sha256": "d08d134a23299ca6623e28b0805e3c77ae7ba4d79b2d8c90ef635f8c6b90e46f"
+    "sha256": "d08d134a23299ca6623e28b0805e3c77ae7ba4d79b2d8c90ef635f8c6b90e46f",
+    "line_count": 449180
+  },
+  "data/20min_cleaned_post2020.parquet": {
+    "size_bytes": 34385638,
+    "size_mb": 32.79,
+    "sha256": "7302e02b7b3fbb5f00a10e763a3923dbc9121e59926c8443e8193efc0427ed22"
   }
 }
