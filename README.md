@@ -22,18 +22,22 @@ Die vollstaendige Projektbeschreibung liegt in `docs/SAN-Meilensteine.md`.
 | Lernergebnis | Analyse | Notebook-Abschnitt |
 |---|---|---|
 | LE3 | Two-Mode-Modellierung, Newman-Projektion auf One-Mode | 1 |
-| LE5 | Zentralitaetsmasse, Brokerage nach Burt | 2.1 |
+| LE5 | Zentralitaetsmasse, strukturelle Loecher nach Burt (Constraint, Effective Size) | 2.1 |
 | LE7 | Ressort-Homophilie via Label-Permutation | 2.2 |
 | LE7 | Kanten-JSD vs. gradtreues Maslov-Sneppen-Nullmodell | 2.3 |
 | LE7 | QAP mit gemeinsamer Zeilen-/Spalten-Permutation | 2.4 |
-| LE7 | OLS auf Leave-One-Out-JSD und Leser-Shares | 2.5 |
+| LE7 | OLS auf Leave-One-Out-JSD und Leser-Shares (mit N, R2) | 2.5 |
 | LE4, LE6 | Cliquen, k-Core, Artikulationspunkte, Bruecken, Connectivity | 2.6 |
-| LE6 | Longitudinale Makro-Metriken und Zentralisierung 2020-2024 | 3.1 |
-| LE4 | Louvain-Community-Detection auf Keyword-Netzwerken | 3.2 |
+| LE6 | Makro-Metriken, Zentralisierung C_D und C_B 2020-2024 | 3.1 |
+| LE6 | Sensitivitaetsanalyse der Sparsifizierung, k in {5, 10, 20} | 3.2 |
+| LE4 | Louvain-Community-Detection auf Keyword-Netzwerken | 3.3 |
+| LE6 | Pruefung von Hypothese 2 inkl. Grenzen des Messdesigns | 3.4 |
 | LE8 | Rollierende temporale Link-Prediction, fuenf Algorithmen | 4 |
+| LE9 | Independent-Cascade-Diffusion, Broker vs. Hubs vs. Zufall | 5 |
 
-Nicht abgedeckt: LE9 (Diffusion) und LE10 (Graphlets). Beide sind im Ausblick
-des Notebooks als naechster Schritt benannt.
+Nicht abgedeckt: LE10 (Graphlets), im Ausblick des Notebooks als naechster
+Schritt benannt. 14 durchnummerierte Abbildungen, alle inline sichtbar und in
+der Interpretation referenziert.
 
 ## Setup
 
@@ -55,7 +59,7 @@ python -m spacy download de_core_news_sm   # nur fuer die Extraktionspipeline
 | `src/clean_dataset.py` | Cleaning-Skript, erzeugt das Parquet. Nur ausfuehren, nie importieren (siehe offene Punkte) |
 | `src/network_models.py` | Graphkonstruktion, Metriken, Link-Prediction |
 | `src/02_analyse.ipynb` | Hauptanalyse-Notebook (generiert, siehe unten) |
-| `scripts/` | Notebook-Generierung, headless Ausfuehrung, Manifest, Abgabe-Paket |
+| `scripts/` | Notebook-Generierung, Ausfuehrung, Manifest, Ground-Truth-Audit, Abgabe-Paket |
 | `out_plots/` | Erzeugte Abbildungen fuer den Bericht |
 | `graphen/` | Exportierte `.gexf`-Graphen fuer Gephi |
 | `docs/` | Meilensteindokument, Bewertungsraster, Modulbeschreibung |
@@ -78,6 +82,8 @@ python scripts/build_manifest.py         # aktualisiert die Hashes in data/manif
 python scripts/build_manifest.py --check # prueft Rohdaten und Parquet gegen das Manifest
 python scripts/package_submission.py --dry-run  # zeigt das Abgabe-Paket
 python scripts/package_submission.py            # baut submission/*.zip
+python scripts/build_ground_truth_validation.py --offline  # Audit-Report neu rendern
+python scripts/build_ground_truth_validation.py            # Live-Audit gegen 20min.ch
 ```
 
 Die Unit-Tests der Netzwerkmodelle laufen mit:

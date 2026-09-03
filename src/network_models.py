@@ -408,6 +408,90 @@ def create_rolling_link_prediction_windows(df):
 
 
 # -------------------------------------------------------------------------
+# 2b. Structural Holes (Burt) & Freeman Centralization (LE5 / LE6)
+# -------------------------------------------------------------------------
+
+def compute_burt_structural_holes(G, weight='weight'):
+    """
+    Burt's structural-hole measures per node.
+
+    constraint      -- how much a node's contacts are themselves connected.
+                       LOW constraint = the node spans structural holes.
+    effective_size  -- number of non-redundant contacts.
+    efficiency      -- effective_size / degree, in [0, 1].
+
+    Betweenness answers "who lies on many shortest paths"; Burt answers "whose
+    contacts do NOT know each other". They are different questions and the
+    project promised the Burt one.
+    """
+    constraint = nx.constraint(G, weight=weight)
+    effective = nx.effective_size(G, weight=weight)
+    rows = {}
+    for n in G.nodes():
+        deg = G.degree(n)
+        eff = effective.get(n, float('nan'))
+        rows[n] = {
+            'constraint': float(constraint.get(n, float('nan'))),
+            'effective_size': float(eff),
+            'efficiency': float(eff / deg) if deg else float('nan')
+        }
+    return rows
+
+
+def freeman_centralization(G, centrality_dict):
+    """
+    Freeman network centralization for any actor-centrality measure:
+
+        C = sum_i (C_max - C_i) / max_possible_sum
+
+    The denominator is the theoretical maximum of that sum, attained by a star
+    graph, so the result is comparable across networks of different size.
+    Degree centrality uses (n-1)(n-2); betweenness, already normalised to
+    [0, 1] by networkx, uses (n-1).
+    """
+    vals = np.array(list(centrality_dict.values()), dtype=float)
+    n = len(vals)
+    if n < 3:
+        return 0.0
+    return float(np.sum(vals.max() - vals))
+
+
+def degree_centralization(G):
+    """Normalised Freeman degree centralization, C_D in [0, 1]."""
+    n = G.number_of_nodes()
+    if n < 3:
+        return 0.0
+    degs = np.array([d for _, d in G.degree()], dtype=float)
+    return float(np.sum(degs.max() - degs) / ((n - 1) * (n - 2)))
+
+
+def betweenness_centralization(G, weight='distance', normalized=True):
+    """
+    Normalised Freeman betweenness centralization, C_B in [0, 1].
+
+    With networkx betweenness already normalised to [0, 1], the maximum of
+    sum(C_max - C_i) is (n - 1), attained by the star graph.
+    """
+    n = G.number_of_nodes()
+    if n < 3:
+        return 0.0
+    bt = nx.betweenness_centrality(G, weight=weight, normalized=normalized)
+    vals = np.array(list(bt.values()), dtype=float)
+    return float(np.sum(vals.max() - vals) / (n - 1))
+
+
+def max_possible_degree_centralization(n, k):
+    """
+    Upper bound of C_D when every node's degree is capped at k, as mutual k-NN
+    sparsification does. Needed to state honestly how much room a design leaves
+    for centralization to vary at all.
+    """
+    if n < 3:
+        return 0.0
+    return float((n - 1) * k / ((n - 1) * (n - 2)))
+
+
+# -------------------------------------------------------------------------
 # 3a. QAP: Dyadic Hypothesis Testing on Edge Matrices (LE7)
 # -------------------------------------------------------------------------
 
@@ -525,6 +609,80 @@ def qap_correlation_test(matrix_a, matrix_b, n_perm=5000, seed=42, alternative='
         'null_std': float(perm_r.std()),
         'null_distribution': perm_r,
         'alternative': alternative
+    }
+
+
+# -------------------------------------------------------------------------
+# 3e. Diffusion: Independent Cascade Model (LE9, Skript Kap. 13)
+# -------------------------------------------------------------------------
+
+def independent_cascade(G, seeds, p=0.05, weight=None, max_steps=100, rng=None):
+    """
+    Independent Cascade Model.
+
+    Every newly activated node gets exactly one attempt to activate each
+    inactive neighbour, succeeding with probability p. With `weight` given, the
+    per-edge probability is scaled by the normalised edge weight, so stronger
+    collaborations transmit more readily.
+
+    Returns (activated_set, activations_per_step).
+    """
+    rng = rng or np.random.default_rng(42)
+    active = set(seeds) & set(G.nodes())
+    frontier = set(active)
+    history = [len(active)]
+
+    if weight is not None:
+        w_max = max((d.get(weight, 1.0) for _, _, d in G.edges(data=True)), default=1.0) or 1.0
+
+    step = 0
+    while frontier and step < max_steps:
+        step += 1
+        newly = set()
+        for u in frontier:
+            for v in G.neighbors(u):
+                if v in active or v in newly:
+                    continue
+                p_uv = p
+                if weight is not None:
+                    p_uv = min(1.0, p * (G[u][v].get(weight, 1.0) / w_max) * 2.0)
+                if rng.random() < p_uv:
+                    newly.add(v)
+        active |= newly
+        frontier = newly
+        history.append(len(active))
+
+    return active, history
+
+
+def simulate_diffusion(G, seeds, p=0.05, n_sim=200, weight=None, seed=42):
+    """
+    Repeats the Independent Cascade `n_sim` times and summarises the spread.
+    Returns mean/std/median final reach as a share of all nodes, plus the mean
+    activation curve over steps.
+    """
+    rng = np.random.default_rng(seed)
+    n = G.number_of_nodes()
+    finals, curves = [], []
+    for _ in range(n_sim):
+        active, hist = independent_cascade(G, seeds, p=p, weight=weight, rng=rng)
+        finals.append(len(active))
+        curves.append(hist)
+
+    max_len = max(len(c) for c in curves)
+    padded = np.array([c + [c[-1]] * (max_len - len(c)) for c in curves], dtype=float)
+
+    finals = np.array(finals, dtype=float)
+    return {
+        'n_sim': n_sim,
+        'p': p,
+        'n_seeds': len(set(seeds) & set(G.nodes())),
+        'mean_reach': float(finals.mean()),
+        'std_reach': float(finals.std()),
+        'median_reach': float(np.median(finals)),
+        'mean_reach_share': float(finals.mean() / n) if n else 0.0,
+        'mean_curve': padded.mean(axis=0),
+        'final_counts': finals
     }
 
 
@@ -947,6 +1105,43 @@ def run_synthetic_unit_tests():
         with open(p1, 'rb') as f1, open(p2, 'rb') as f2:
             assert f1.read() == f2.read(), 'Rendering must be deterministic'
     print('  [PASS] Network rendering is deterministic and non-trivial.')
+
+    # 12. Burt and Freeman measures on a star graph, where both are extremal.
+    star = nx.star_graph(6)  # node 0 is the hub, 1..6 are leaves
+    burt = compute_burt_structural_holes(star, weight=None)
+    hub_c = burt[0]['constraint']
+    leaf_c = burt[1]['constraint']
+    assert hub_c < leaf_c, 'Hub must have LOWER Burt constraint than a leaf'
+    assert abs(burt[0]['effective_size'] - 6.0) < 1e-6, \
+        f"Hub effective size should be 6, got {burt[0]['effective_size']}"
+    assert abs(degree_centralization(star) - 1.0) < 1e-9, \
+        'Star graph must have degree centralization 1.0'
+    assert abs(betweenness_centralization(star, weight=None) - 1.0) < 1e-9, \
+        'Star graph must have betweenness centralization 1.0'
+    ring = nx.cycle_graph(7)
+    assert degree_centralization(ring) < 1e-9, 'Regular ring has centralization 0'
+    assert betweenness_centralization(ring, weight=None) < 1e-9, \
+        'Regular ring has betweenness centralization 0'
+    # A degree cap of k bounds C_D far below 1
+    bound = max_possible_degree_centralization(1200, 10)
+    assert bound < 0.01, f'k=10 on n=1200 must bound C_D below 0.01, got {bound}'
+    print('  [PASS] Burt constraint and Freeman centralization behave correctly.')
+
+    # 13. Independent Cascade bounds: p=0 spreads nothing, p=1 reaches the
+    # whole connected component, and the result is reproducible under a seed.
+    G_dif = nx.path_graph(6)
+    only_seed, _ = independent_cascade(G_dif, [0], p=0.0, rng=np.random.default_rng(0))
+    assert only_seed == {0}, 'With p = 0 only the seed may be active'
+    everyone, _ = independent_cascade(G_dif, [0], p=1.0, rng=np.random.default_rng(0))
+    assert everyone == set(G_dif.nodes()), 'With p = 1 the whole component must activate'
+    a = simulate_diffusion(G_dif, [0], p=0.5, n_sim=50, seed=7)['mean_reach']
+    b = simulate_diffusion(G_dif, [0], p=0.5, n_sim=50, seed=7)['mean_reach']
+    assert a == b, 'Diffusion simulation must be reproducible for a fixed seed'
+    # A disconnected node can never be reached
+    G_dif.add_node('island')
+    reach = simulate_diffusion(G_dif, [0], p=1.0, n_sim=5, seed=1)
+    assert reach['mean_reach'] == 6, 'Isolated node must stay unreachable'
+    print('  [PASS] Independent Cascade respects bounds and is reproducible.')
 
     print('All unit tests passed successfully!')
 

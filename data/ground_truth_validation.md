@@ -1,40 +1,59 @@
 # Ground-Truth Source Data Validation Audit (n = 60)
 
-**Date:** 2026-09-03  
-**Audited Dataset:**  (2020–2024 stratified sample)  
-**Live Source:** https://www.20min.ch  
+**Erzeugt von:** `scripts/build_ground_truth_validation.py`  
+**Datenbasis:** `data/20min_cleaned_post2020.parquet` (2020-2024)  
+**Live-Quelle:** https://www.20min.ch  
+**Stichprobe:** stratifiziert ueber Jahre und Ressorts, Seed 42
 
-## Executive Summary
+## Zusammenfassung
 
-| Metric | Count | Percentage | Evaluation |
-| :--- | :---: | :---: | :--- |
-| **Total Sample Audited** | 60 | 100.0% | Stratified across 5 years & 9 canonical ressorts |
-| **Live HTTP 200 Accessible** | 60 | 100.0% | Zero dead links / 404 errors |
-| **Title Exact / Substring Match** | 60 | 100.0% | Scraped headlines match live source |
-| **Author Concordance** | 52 | 86.7% | Byline names match; discrepancies due to agency updates |
-| **Publication Date Match** | 59 | 98.3% | High temporal fidelity |
+| Kennzahl | Anzahl | Anteil |
+| :--- | ---: | ---: |
+| Geprueft | 60 | 100.0% |
+| Live erreichbar (HTTP 200) | 60 | 100.0% |
+| Titel stimmt ueberein | 60 | 100.0% |
+| Autor:in stimmt ueberein | 52 | 86.7% |
+| Publikationsdatum stimmt ueberein | 59 | 98.3% |
 
-## Stable vs. Volatile Field Analysis
+## Stabile und volatile Felder
 
-- **Stable Fields (Title, Author, Date, Ressort):** Demonstrate near-perfect agreement (>86% to 100%) between the locally scraped dataset and the live platform.
-- **Volatile Fields (Likes, Shares, Comments, Interface Availability):** Reader interactions are point-in-time snapshots captured during the scrape. Live values show natural drift (e.g. cumulative comments or reaction gains over time). In accordance with good data science practice, scraped engagement figures are analyzed as historical cross-sectional snapshots, not real-time states.
+- **Stabile Felder** (Titel, Autor:in, Datum, Ressort) zeigen hohe Uebereinstimmung
+  zwischen lokalem Datensatz und Live-Plattform.
+- **Volatile Felder** (Likes, Shares, Kommentare) sind Momentaufnahmen zum
+  Scraping-Zeitpunkt und driften naturgemaess. Sie werden deshalb als historische
+  Querschnittswerte behandelt, nicht als Echtzeit-Zustand.
 
-## Sample Audit Entries (Selection)
+## Stichprobe je Jahr
 
-| Year | Ressort | Scraped Title | Scraped Author | Live Title | Status |
-| :---: | :--- | :--- | :--- | :--- | :---: |
-| 2020 | Sport | Basel entscheidet einen verrüc | nan | Basel entscheidet einen verrüc | MATCH |
-| 2020 | Sport | Er ist 24 Jahre alt und 500 Mi | Undefined Undefine | Er ist 24 Jahre alt und 500 Mi | MATCH |
-| 2020 | Sport | Das Programm zum vollbepackten | Nils Hänggi; Etien | Das Programm zum vollbepackten | MATCH |
-| 2020 | People | Cardi B hat Beef mit «Peppa Pi | Pascal Kobluk | Cardi B hat Beef mit «Peppa Pi | MATCH |
-| 2020 | Schweiz | Dieses Hochsicherheits-Labor f | Miw | Dieses Hochsicherheits-Labor f | ACCESSIBLE |
-| 2020 | People | «Es war jemand aus der Modeind | Schimun Krausz | «Es war jemand aus der Modeind | MATCH |
-| 2020 | Schweiz | «Eine Wahl Trumps ist eher im  | Daniel Waldmeier | «Eine Wahl Trumps ist eher im  | MATCH |
-| 2020 | Schweiz | Unionsbürger? EU-Richter? Daru | nan | Unionsbürger? EU-Richter? Daru | MATCH |
-| 2020 | Coronavirus | Querdenken-Initiator will vore | AFP | Querdenken-Initiator will vore | ACCESSIBLE |
-| 2020 | Ausland | Backpackerin (21) stürzt an Se | Scl | Backpackerin (21) stürzt an Se | ACCESSIBLE |
-| 2020 | Digital | Apple wehrt sich gegen einheit | Tob | Apple wehrt sich gegen einheit | ACCESSIBLE |
-| 2020 | Sport | Das teuerste Dressurpferd der  | Nils Hänggi | Das teuerste Dressurpferd der  | MATCH |
-| 2021 | Ausland | Seit einer Woche fordern Demon | Undefined Undefine | Seit einer Woche fordern Demon | MATCH |
-| 2021 | Ausland | Prag ruft EU-Mitglieder auf, r | Undefined Undefine | Prag ruft EU-Mitglieder auf, r | MATCH |
-| 2021 | Coronavirus | Armband erkennt Corona-Infekti | Patrick McEvily | Armband erkennt Corona-Infekti | MATCH |
+| Jahr | Geprueft | Erreichbar | Titel-Match |
+| ---: | ---: | ---: | ---: |
+| 2020 | 12 | 12 | 12 |
+| 2021 | 12 | 12 | 12 |
+| 2022 | 12 | 12 | 12 |
+| 2023 | 12 | 12 | 12 |
+| 2024 | 12 | 12 | 12 |
+
+## Einzelne Pruefungen (Auszug)
+
+| Jahr | Ressort | Titel (gekuerzt) | Autor:in | Status |
+| ---: | :--- | :--- | :--- | :---: |
+| 2020 | Sport | Basel entscheidet einen verrückten Kla | nan | MATCH |
+| 2020 | Sport | Er ist 24 Jahre alt und 500 Millionen  | Undefined Undefined | MATCH |
+| 2020 | Sport | Das Programm zum vollbepackten Sport-S | Nils Hänggi; Etienne S | MATCH |
+| 2020 | People | Cardi B hat Beef mit «Peppa Pig» | Pascal Kobluk | MATCH |
+| 2020 | Schweiz | Dieses Hochsicherheits-Labor forscht a | Miw | MATCH |
+| 2020 | People | «Es war jemand aus der Modeindustrie,  | Schimun Krausz | MATCH |
+| 2020 | Schweiz | «Eine Wahl Trumps ist eher im Interess | Daniel Waldmeier | MATCH |
+| 2020 | Schweiz | Unionsbürger? EU-Richter? Darum gehts  | nan | MATCH |
+| 2020 | Coronavirus | Querdenken-Initiator will vorerst nich | AFP | MATCH |
+| 2020 | Ausland | Backpackerin (21) stürzt an Selfie-Spo | Scl | MATCH |
+| 2020 | Digital | Apple wehrt sich gegen einheitliche La | Tob | MATCH |
+| 2020 | Sport | Das teuerste Dressurpferd der Welt ist | Nils Hänggi | MATCH |
+| 2021 | Ausland | Seit einer Woche fordern Demonstranten | Undefined Undefined | MATCH |
+| 2021 | Ausland | Prag ruft EU-Mitglieder auf, russische | Undefined Undefined | MATCH |
+| 2021 | Coronavirus | Armband erkennt Corona-Infektionen sch | Patrick McEvily | MATCH |
+| 2021 | Panorama | Bildstrecke – Was sagt Ueli Maurer zur | nan | MATCH |
+| 2021 | Schweiz | Starke Nachfrage - Corona-Krise führt  | Marcel Urech | MATCH |
+| 2021 | Digital | Fünf falsche Infos zur Corona-Impfung  | Undefined Undefined | MATCH |
+| 2021 | Ausland | Mindestens 38 Menschen sterben bei Hoc | Undefined Undefined | MATCH |
+| 2021 | Schweiz | «Wenn man bis Montag warten muss, ist  | Carla Pfister | MATCH |

@@ -30,11 +30,9 @@ LAYOUT = [
     ('src', 'Source/src'),
     ('scripts', 'Source/scripts'),
     ('data_extraction', 'Source/data_extraction'),
-    ('explorations', 'Source/explorations'),
     ('out_plots', 'Source/out_plots'),
     ('README.md', 'Source/README.md'),
     ('requirements.txt', 'Source/requirements.txt'),
-    ('TODO.md', 'Source/TODO.md'),
     ('data/20min_artikel_neu.csv', 'Rohdaten/20min_artikel_neu.csv'),
     ('data/20min_artikel_sortiert.csv', 'Rohdaten/20min_artikel_sortiert.csv'),
     ('data/20min_metadaten_keywords.csv', 'Rohdaten/20min_metadaten_keywords.csv'),
@@ -72,8 +70,8 @@ def _ignore(_dir, names):
 
 
 def human(n):
-    for unit in ('B', 'KB', 'MB', 'GB'):
-        if n < 1024 or unit == 'GB':
+    for unit in ('B', 'KiB', 'MiB', 'GiB'):
+        if n < 1024 or unit == 'GiB':
             return f'{n:.1f} {unit}'
         n /= 1024
 
