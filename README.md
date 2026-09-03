@@ -97,8 +97,11 @@ Die Quarto-Dokumente in `src/` verwenden dagegen dokumentrelative Pfade
 
 ## Stand der Code-Review-Befunde
 
-Ein Code-Review hatte acht Befunde ergeben. Alle sind behoben und durch Tests
-in `src/network_models.py` abgesichert (`python src/network_models.py`):
+Das Projekt wurde in drei Runden systematisch reviewt. Alle Befunde sind
+behoben und durch Unit-Tests in `src/network_models.py` abgesichert
+(`python src/network_models.py`).
+
+### Runde 1: acht Befunde zur Korrektheit
 
 | # | Befund | Behebung |
 |---|---|---|
@@ -128,15 +131,45 @@ Vier weitere Punkte kamen bei der Behebung dazu:
   sich das Vorzeichen von +0.148 auf -0.140 um, was der Homophilie-Hypothese
   entspricht.
 
+### Runde 2: zehn Befunde zu Vollstaendigkeit und Belegbarkeit
+
+| # | Befund | Behebung |
+|---|---|---|
+| 1 | Interpretation fehlte bei 7 von 10 Analysen | Alle 14 Analyse-Zellen haben jetzt eine anwendungsbezogene Interpretation |
+| 2 | Methodik versprach eine Sensitivitaetspruefung ueber `k`, die nie lief | Implementiert als Abschnitt 3.2 |
+| 3 | Hypothese 2 wurde nirgends gegen die Erwartung geprueft | Abschnitt 3.4, inkl. Grenzen des Messdesigns |
+| 4 | „Burt structural holes“ war `betweenness/(degree+1)` | `nx.constraint` und `nx.effective_size`, getrennt von Betweenness |
+| 5 | $C_B$ und Precision@100 waren im Meilenstein zugesagt, fehlten aber | Beide ergaenzt |
+| 6 | OLS gab nur Koeffizienten aus | N, $R^2$, adj. $R^2$, F-Statistik und Fallausschluesse |
+| 7 | `ground_truth_validation.md` hatte keinen erzeugenden Code | `scripts/build_ground_truth_validation.py`, mit `--offline` |
+| 8 | Abbildungen: Nummernkollision, Luecken, Renderings nicht im Notebook | Durchnummeriert 01-14, alle inline, alle im Text referenziert |
+| 9 | Stub-Notebook und internes `TODO.md` landeten im Abgabe-Paket | Aus `Source/` entfernt |
+| 10 | LE9 (Diffusion) nicht abgedeckt | Independent Cascade als Pfeiler 4 |
+
+### Runde 3: fuenf Befunde, davon einer schwerwiegend
+
+| # | Befund | Behebung |
+|---|---|---|
+| 1 | **Diffusion war am Maximalgewicht normiert.** Bei $w_{max} = 103$ und Median $1.0$ lag die effektive Uebertragungswahrscheinlichkeit rund 50-fach unter dem angegebenen $p$; 94.7% der Kanten unter 0.01. Der Befund „Hubs schlagen Broker“ war ein Artefakt. | Normierung am Median, magische Konstante entfernt, Sweep ueber $p \in \{0.02, ..., 0.5\}$. Ergebnis kehrt sich um: bei kleinem $p$ gewinnen die Broker klar, ab $p \approx 0.1$ wird die Startmenge irrelevant |
+| 2 | $C_B$ trug die Aussage zu Hypothese 2, war aber nur bei $k=10$ geprueft | $C_B$ in die Sensitivitaetsanalyse aufgenommen. Ergebnis: **nicht robust** (Maximum 2020/2020/2023), die Aussage wurde entsprechend zurueckgenommen |
+| 3 | Das robuste $Q$-Minimum 2020 bei allen $k$ war nicht erwaehnt | Als k-robuste Bestaetigung der Modularitaets-Haelfte von Hypothese 2 ausgewiesen |
+| 4 | Abstract, Forschungsfrage und Kapitelnummerierung waren veraltet | Abstract auf vier Pfeiler aktualisiert, Burt-Formulierung korrigiert, Nummerierung durchgezogen |
+| 5 | $Q$ differierte zwischen 3.1 (Mittel ueber 10 Seeds) und 3.2 (Einzellauf) | Fussnote in 3.2 |
+
 ### Auswirkungen auf die Resultate
 
-- 41.4% der Kommentarwerte (48'970 Artikel) waren zuvor faelschlich 0.
-- 1'573 Autorennamen wurden durch `capitalize()` beschaedigt
-  („Patrick McEvily“ zu „Patrick Mcevily“). Autorennamen sind Knoten-IDs.
-- 133 institutionelle Knoten (Agenturen, Desks) sind aus dem Graphen entfernt:
-  814 statt 947 Autor:innen, 574 statt 639 Knoten im Kollaborationsnetzwerk.
-- PR-AUC der Link-Prediction im finalen Fenster: 0.1872 statt zuvor 0.1230.
-- Assortativitaet r = 0.3630 (zuvor 0.3698).
+- 41.4% der Kommentarwerte (48'970 Artikel) waren faelschlich 0.
+- 1'573 Autorennamen wurden durch `capitalize()` beschaedigt. Autorennamen sind
+  Knoten-IDs.
+- 133 institutionelle Knoten (Agenturen, Desks) sind entfernt: 814 statt 947
+  Autor:innen, 574 statt 639 Knoten im Kollaborationsnetzwerk.
+- PR-AUC der Link-Prediction im finalen Fenster: 0.1872 statt 0.1230.
+- QAP-Korrelation Kollaborationsgewicht zu Ressort-Divergenz: -0.140 statt
+  +0.148 (Vorzeichenumkehr nach Korrektur der Matrixdefinition).
+- Diffusion: nach Korrektur der Normierung erreichen die Burt-Broker bei
+  $p = 0.02$ das 2.3-fache einer Zufallsauswahl; zuvor schien der Unterschied
+  zu den Hubs entgegengesetzt.
+- Assortativitaet r = 0.3630.
 
 ### Verbleibende Einschraenkung
 

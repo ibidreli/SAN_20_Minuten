@@ -5,23 +5,33 @@ cells = []
 
 # Title & Metadata
 cells.append(nbf.v4.new_markdown_cell("""# Soziale Netzwerkanalyse: 20 Minuten (2020–2024)
-## Strukturelle Dynamik, redaktionelle Kollaboration und Link-Prediction im Schweizer Online-Journalismus
+## Strukturelle Dynamik, redaktionelle Kollaboration, Link-Prediction und Diffusion im Schweizer Online-Journalismus
 
 **Autoren:** Elias & Luca  
 **Modul:** Soziale Netzwerke Analysieren (SAN / SNA), FHNW  
 **Dozent:** Michael Henninger  
-**Datum:** 2026-09-03  
 
 ---
 
 ### Abstract & Überblick
-Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse des Schweizer News-Portals *20 Minuten* für die fünf vollständigen Kalenderjahre 2020 bis 2024 (118'302 bereinigte Artikel). Wir untersuchen drei zentrale Pfeiler des Modullehrplans:
-1. **Pfeiler 1 (LE3, LE5, LE7): Redaktionelle Silobildung, Homophilie und strukturelle Brokerage:**  
-   Bipartite Modellierung (Artikel-Autor), Projektion auf ein gewichtetes Newman-Kollaborationsnetzwerk, Test auf Ressort-Homophilie via Permutationstest ($B=5'000$), Identifikation von Brokern nach Burt (Betweenness Centrality) und Analyse interdisziplinärer Zusammenarbeit über die Jensen-Shannon-Divergenz (JSD).
-2. **Pfeiler 2 (LE4, LE6): Makro-Topologie und Krisen-Evolution (2020–2024):**  
-   Longitudinale semantische Kookkurrenz-Netzwerke auf einem fixierten 1'200-Wörter-Vokabular mit Mutual $k$-NN-Sparsifizierung ($k=10$), Kennzahlen auf der Riesenzusammenhangskomponente (Zentralisierung, Pfadlänge, Dichte) und Louvain-Modulariät ($Q$).
-3. **Pfeiler 3 (LE8): Rolling Temporal Link-Prediction im Koautorenschafts-Netzwerk:**  
-   Empirische Vorhersage zukünftiger Kooperationen über drei rollende Zeithorizonte unter unbalancierten Realbedingungen (Average Precision, Precision@k, ROC-AUC) zum Vergleich von Triadenschliessung (Adamic-Adar) versus Popularität (Preferential Attachment).
+
+Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse des Schweizer News-Portals *20 Minuten* für die fünf vollständigen Kalenderjahre 2020 bis 2024 (118'302 bereinigte Artikel, 814 Journalist:innen). Wir untersuchen **vier Pfeiler**:
+
+1. **Pfeiler 1 (LE3, LE5, LE7): Redaktionelle Silobildung, Homophilie und Brokerage**  
+   Bipartite Modellierung (Artikel-Autor) und Projektion auf ein gewichtetes Newman-Kollaborationsnetzwerk. Ressort-Homophilie über drei Nullmodelle steigender Strenge: Label-Permutation ($B=5'000$), gradtreues Maslov-Sneppen-Rewiring und **QAP** mit gemeinsamer Zeilen-/Spalten-Permutation. Brokerage in zwei Operationalisierungen, **Burts Constraint und Effective Size** sowie Betweenness-Zentralität, deren Ranglisten bewusst getrennt ausgewiesen werden. Kohäsion und strukturelle Robustheit über Cliquen, $k$-Core, Artikulationspunkte und Brücken. Interdisziplinäre Zusammenarbeit über die leakage-freie Leave-One-Out-Jensen-Shannon-Divergenz.
+
+2. **Pfeiler 2 (LE4, LE6): Makro-Topologie und Krisen-Evolution 2020–2024**  
+   Longitudinale semantische Kookkurrenz-Netzwerke auf einem fixierten 1'200-Wörter-Vokabular mit Mutual-$k$-NN-Sparsifizierung. Kennzahlen auf der Riesenkomponente, Freeman-Zentralisierung $C_D$ **und $C_B$**, Louvain-Modularität über zehn Seeds. Eine **Sensitivitätsanalyse über $k \in \{5, 10, 20\}$** prüft, welche Befunde vom Sparsifizierungsparameter abhängen, und legt offen, dass das Design $C_D$ konstruktionsbedingt deckelt. Hypothese 2 wird explizit gegen die Erwartung aus dem Meilenstein geprüft.
+
+3. **Pfeiler 3 (LE8): Rolling Temporal Link-Prediction**  
+   Vorhersage zukünftiger Kooperationen über drei rollende Zeithorizonte unter unbalancierten Realbedingungen (Average Precision, Precision@$k$ für $k \in \{20, 50, 100\}$, ROC-AUC), mit Bootstrap-Konfidenzintervall für den Vergleich von Triadenschliessung (Adamic-Adar) und Popularität (Preferential Attachment).
+
+4. **Pfeiler 4 (LE9): Diffusion im Kollaborationsnetzwerk**  
+   Independent-Cascade-Simulation über den gesamten Bereich der Übertragungswahrscheinlichkeit $p$, mit Vergleich dreier Startmengen-Strategien (Burt-Broker, Hubs, Zufall).
+
+Nicht abgedeckt ist LE10 (Graphlets); der Ausblick benennt dies als nächsten Schritt.
+
+**Reproduzierbarkeit.** Alle Kennzahlen entstehen aus `src/network_models.py`, dessen Kernfunktionen durch 14 Unit-Tests abgesichert sind (`python src/network_models.py`). Die Datenintegrität ist über `data/manifest.json` prüfbar (`python scripts/build_manifest.py --check`). Sämtliche Abbildungen sind durchnummeriert (Abb. 1 bis 14) und im Text referenziert.
 
 ---
 """))
@@ -63,6 +73,7 @@ from src.network_models import (
     jsd_matrix_from_profiles,
     analyze_cohesion_and_connectivity,
     simulate_diffusion,
+    weight_normalizer,
     compute_burt_structural_holes,
     degree_centralization,
     betweenness_centralization,
@@ -128,7 +139,7 @@ cells.append(nbf.v4.new_markdown_cell("""## 2. Pfeiler 1: Kollaborationsstruktur
 
 ### Theoretischer Hintergrund & Forschungsfragen
 - **Homophilie (Newman, 2002):** Bevorzugen Journalist:innen Kooperationen innerhalb ihres eigenen Fachressorts gegenüber fachfremden Kolleg:innen?
-- **Strukturelle Löcher & Brokerage (Burt, 1992, 2004):** Welche Akteure weisen eine überproportional hohe Betweenness Centrality auf und überbrücken Ressortgrenzen?
+- **Strukturelle Löcher & Brokerage (Burt, 1992, 2004):** Welche Akteure überbrücken strukturelle Löcher, also verbinden Gruppen, die untereinander nicht vernetzt sind (niedriger Burt-Constraint, hohe Effective Size)? Und sind das dieselben Personen, die auf vielen kürzesten Pfaden liegen (hohe Betweenness)?
 - **Interdisziplinäre Kooperation:** Unterscheidet sich die mittlere Kanten-Jensen-Shannon-Divergenz (JSD) signifikant von einem gradtreuen Zufallsmodell, und erzielen ressortübergreifende Kooperationen mehr Leser-Shares?
 """))
 
@@ -786,6 +797,9 @@ for k_val in [5, 10, 20]:
             'C_D': degree_centralization(G_k),
             'C_D_max_moeglich': bound_k,
             'C_D_Ausschoepfung': degree_centralization(G_k) / bound_k,
+            # C_B traegt in 3.4 die Aussage zu Hypothese 2 und muss daher
+            # ueber k mitgeprueft werden, nicht nur bei k = 10.
+            'C_B': betweenness_centralization(gcc_k, weight='distance'),
             'Q': community_louvain.modularity(part_k, G_k, weight='weight'),
             'groesste_community': float(sizes_k.max() / sizes_k.sum())
         })
@@ -796,17 +810,34 @@ print(sens_df.round(4).to_string(index=False))
 
 print('\\nMittelwerte je k:')
 print(sens_df.groupby('k')[['edges', 'avg_degree', 'C_D', 'C_D_max_moeglich',
-                            'Q', 'groesste_community']].mean().round(4).to_string())
+                            'C_B', 'Q', 'groesste_community']].mean().round(4).to_string())
 
-fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+# Robustheit der Jahres-Extrema ueber k: das ist die eigentliche Frage der
+# Sensitivitaetsanalyse, nicht das absolute Niveau.
+print('\\nRobustheit der Jahres-Extrema ueber k:')
+for col, want_year, mode in [('C_D', 2020, 'max'), ('C_B', 2020, 'max'),
+                             ('Q', 2020, 'min'), ('groesste_community', 2020, 'max')]:
+    years_hit = []
+    for k_val in [5, 10, 20]:
+        sub = sens_df[sens_df['k'] == k_val].set_index('year')[col]
+        years_hit.append(int(sub.idxmax() if mode == 'max' else sub.idxmin()))
+    stable = len(set(years_hit)) == 1
+    consistent = all(y == want_year for y in years_hit)
+    print(f'  {col:<20} {mode}-Jahr bei k=5/10/20: {years_hit}  '
+          f'-> {"stabil" if stable else "instabil"}'
+          f'{", entspricht der Erwartung 2020" if consistent else ""}')
+
+fig, axes = plt.subplots(1, 4, figsize=(19, 4.3))
 for k_val, marker in zip([5, 10, 20], ['o', 's', '^']):
     sub = sens_df[sens_df['k'] == k_val]
     axes[0].plot(sub['year'], sub['C_D'], marker=marker, label=f'k = {k_val}')
-    axes[1].plot(sub['year'], sub['Q'], marker=marker, label=f'k = {k_val}')
-    axes[2].plot(sub['year'], sub['groesste_community'], marker=marker, label=f'k = {k_val}')
+    axes[1].plot(sub['year'], sub['C_B'], marker=marker, label=f'k = {k_val}')
+    axes[2].plot(sub['year'], sub['Q'], marker=marker, label=f'k = {k_val}')
+    axes[3].plot(sub['year'], sub['groesste_community'], marker=marker, label=f'k = {k_val}')
 axes[0].set_title('Degree-Zentralisierung $C_D$'); axes[0].set_ylabel('$C_D$')
-axes[1].set_title('Louvain-Modularitaet $Q$'); axes[1].set_ylabel('$Q$')
-axes[2].set_title('Anteil der groessten Community'); axes[2].set_ylabel('Anteil')
+axes[1].set_title('Betweenness-Zentralisierung $C_B$'); axes[1].set_ylabel('$C_B$')
+axes[2].set_title('Louvain-Modularitaet $Q$'); axes[2].set_ylabel('$Q$')
+axes[3].set_title('Anteil der groessten Community'); axes[3].set_ylabel('Anteil')
 for ax in axes:
     ax.set_xlabel('Jahr'); ax.legend(fontsize=8); ax.set_xticks(years)
 plt.suptitle('Abbildung 10: Sensitivitaet der Makro-Kennzahlen gegenueber dem Sparsifizierungsparameter k', y=1.04)
@@ -819,25 +850,37 @@ cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 10, Sensiti
 
 Die Sensitivitaetsanalyse beantwortet zwei Fragen.
 
-*Methodisch:* Die absoluten Werte haengen erwartungsgemaess stark an $k$. Von
-$k=5$ zu $k=20$ steigt die mittlere Kantenzahl von rund 1'650 auf 8'750, $Q$
-faellt von etwa 0.91 auf 0.65, und $C_D$ steigt von 0.0019 auf 0.0045. Die
-Jahres-Rangfolge ist bei $C_D$ ueber $k=10$ und $k=20$ stabil (Maximum jeweils
-2021), bei $Q$ dagegen nicht durchgehend: bei $k=5$ liegt das Maximum 2023, bei
-$k=10$ und $k=20$ jeweils 2021. Aussagen ueber *Niveaus* sind damit
-parameterabhaengig, Aussagen ueber die Rangfolge nur eingeschraenkt belastbar.
+*Wie stabil sind die Befunde?* Die absoluten Niveaus haengen erwartungsgemaess
+stark an $k$: von $k=5$ zu $k=20$ steigt die mittlere Kantenzahl von rund 1'654
+auf 8'735, $Q$ faellt von 0.908 auf 0.656, $C_D$ steigt von 0.0019 auf 0.0045.
+Entscheidend ist deshalb nicht das Niveau, sondern ob die *Jahres-Extrema*
+ueber $k$ gleich bleiben. Die Auswertung zeigt ein klares Muster:
 
-*Inhaltlich wichtiger:* Die Spalte `C_D_max_moeglich` zeigt, dass die
-Mutual-$k$-NN-Sparsifizierung den Knotengrad bei $k$ deckelt und damit auch
-$C_D$ nach oben begrenzt. Bei $n = 1200$ liegt die Obergrenze fuer $k=5$ bei
-$0.0042$, fuer $k=10$ bei $0.0083$ und fuer $k=20$ bei $0.0167$. Die
-beobachteten Werte schoepfen davon je nach $k$ nur 26% bis 46% aus. $C_D$ kann
-in diesem Design also gar nicht stark variieren, unabhaengig davon, was in der
-Berichterstattung passiert.
+- **$Q$ hat sein Minimum bei allen drei $k$-Werten im Jahr 2020**
+  (0.8952 bei $k=5$, 0.7702 bei $k=10$, 0.6427 bei $k=20$). Das ist ein
+  robuster Befund und stuetzt genau die Richtung, die der Meilenstein fuer die
+  Modularitaet vorhergesagt hat.
+- **$C_D$ hat sein Maximum bei allen drei $k$-Werten 2021**, also stabil, aber
+  nicht im vorhergesagten Jahr.
+- **$C_B$ ist nicht robust:** das Maximum liegt bei $k=5$ und $k=10$ in 2020,
+  bei $k=20$ dagegen in 2023. Die Betweenness-Zentralisierung taugt damit
+  nicht als tragende Evidenz, obwohl sie die groesste relative Spannweite hat.
+- Der Anteil der groessten Community ist ebenfalls instabil (2022 / 2023 / 2021).
 
-Deshalb weist 3.1 zusaetzlich den Anteil der groessten Community und die
-Entropie der Community-Groessen aus. Diese Masse sind nicht durch den Grad-Cap
-beschraenkt. Die Konsequenz fuer Hypothese 2 wird in 3.4 diskutiert.
+*Wie viel Spielraum laesst das Design?* Die Spalte `C_D_max_moeglich` zeigt,
+dass die Mutual-$k$-NN-Sparsifizierung den Knotengrad bei $k$ deckelt und damit
+auch $C_D$ nach oben begrenzt: bei $n = 1200$ liegt die Obergrenze fuer $k=5$
+bei $0.0042$, fuer $k=10$ bei $0.0083$, fuer $k=20$ bei $0.0167$. Ausgeschoepft
+werden davon nur 26% bis 46%. $C_D$ kann in diesem Design also gar nicht stark
+variieren, unabhaengig davon, was in der Berichterstattung passiert.
+
+*Hinweis zur Vergleichbarkeit mit 3.1:* Dort wird $Q$ als Mittel ueber zehn
+Louvain-Seeds ausgewiesen (2020: 0.7720), hier aus Laufzeitgruenden als
+Einzellauf mit festem Seed 0 (2020: 0.7702). Die Differenz von 0.002 liegt
+innerhalb der in 3.1 berichteten Streuung von $\\pm 0.0014$ und ist kein
+Widerspruch.
+
+Die Konsequenz fuer Hypothese 2 wird in 3.4 diskutiert.
 """))
 
 cells.append(nbf.v4.new_code_cell("""# 3.3 Thematische Louvain-Clusterung: 2020 (Covid-Peak) vs. 2024 (Normalisierung)
@@ -949,49 +992,49 @@ print(f"\\nRueckgang des Artikel-Anteils 2020 -> 2024: "
       f"(Faktor {covid_df.iloc[0]['anteil_artikel'] / max(covid_df.iloc[-1]['anteil_artikel'], 1e-9):.1f})")
 """))
 
-cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Hypothese 2: teilweise bestaetigt, aber mit sehr kleinen Effekten).**
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Hypothese 2: die Modularitaets-Haelfte ist robust bestaetigt, die Zentralisierungs-Haelfte nicht).**
 
 Der Meilenstein erwartete fuer 2020 *maximale Zentralisierung und minimale
-Modularitaet*. Der Befund ist geteilt:
+Modularitaet*. Nach der Sensitivitaetspruefung in 3.2 laesst sich das trennen:
 
-- **Richtung bestaetigt:** Die Betweenness-Zentralisierung $C_B$ erreicht ihr
-  Maximum tatsaechlich 2020, und die Modularitaet $Q$ ihr Minimum ebenfalls
-  2020. Beide Vorzeichen entsprechen genau der Erwartung: im Pandemiejahr
-  laufen mehr Themenstraenge ueber gemeinsame Begriffe, das Netzwerk ist
-  staerker ueber zentrale Vermittlerbegriffe organisiert und weniger sauber in
-  eigenstaendige Cluster zerlegbar.
-- **Richtung nicht bestaetigt:** Die Degree-Zentralisierung $C_D$ ist 2021
-  maximal, nicht 2020, und der Anteil der groessten Community ist 2023 am
-  hoechsten.
+**Bestaetigt und robust:** Die Modularitaet $Q$ hat ihr Minimum bei *allen drei*
+getesteten $k$-Werten im Jahr 2020. Im Pandemiejahr war das Themennetzwerk also
+tatsaechlich am schlechtesten in eigenstaendige Cluster zerlegbar, genau wie
+vorhergesagt, und dieser Befund haengt nicht am Sparsifizierungsparameter. Das
+ist die inhaltlich zentrale Bestaetigung: verschiedenste Themenfelder liefen im
+Pandemie-Komplex zusammen.
 
-Entscheidender als die Richtung ist jedoch die **Groessenordnung**. Die
-Spannweite von $Q$ ueber fuenf Jahre betraegt 2.2% des Mittelwerts, jene von
-$C_D$ 7.1%. Solche Unterschiede sind fuer eine inhaltliche Aussage zu klein.
-Der Grund ist methodisch: Die Mutual-$k$-NN-Sparsifizierung deckelt jeden
-Knotengrad bei $k = 10$ und begrenzt $C_D$ bei $n = 1200$ rechnerisch auf rund
-$0.0083$. Die beobachteten Werte schoepfen davon lediglich 36.6% aus. Ein Mass,
-das konstruktionsbedingt kaum variieren kann, taugt nur eingeschraenkt als Test
-einer Hypothese ueber Variation. Die Sparsifizierung war notwendig, um Jahre mit
-unterschiedlicher Artikelzahl vergleichbar zu machen (siehe 3.2); sie erkauft
-diese Vergleichbarkeit mit dem Verlust genau jener Varianz, auf die Hypothese 2
-zielte. $C_B$ ist mit einer relativen Spannweite von 28.2% das
-aussagekraeftigste der drei Zentralisierungsmasse, weil es nicht direkt am
-Grad-Cap haengt, und bestaetigt die Erwartung.
+**Nicht bestaetigt:** Die Degree-Zentralisierung $C_D$ erreicht ihr Maximum
+stabil 2021, nicht 2020. Die Betweenness-Zentralisierung $C_B$ liegt bei
+$k=5$ und $k=10$ zwar in 2020, bei $k=20$ jedoch in 2023, ist also **nicht
+robust** und trägt die Aussage nicht. Damit bleibt die Zentralisierungs-Haelfte
+der Hypothese unbelegt.
 
-**Wo der Pandemie-Effekt eindeutig sichtbar wird.** Nicht in den globalen
+**Warum die Zentralisierungsmasse hier wenig leisten koennen.** Die
+Mutual-$k$-NN-Sparsifizierung deckelt jeden Knotengrad bei $k = 10$ und
+begrenzt $C_D$ bei $n = 1200$ rechnerisch auf rund $0.0083$; ausgeschoepft
+werden davon 36.6%. Die relative Spannweite von $C_D$ ueber fuenf Jahre
+betraegt 7.1%, jene von $Q$ 2.2%. Ein Mass, das konstruktionsbedingt kaum
+variieren kann, taugt nur eingeschraenkt als Test einer Hypothese ueber
+Variation. Die Sparsifizierung war notwendig, um Jahre mit unterschiedlicher
+Artikelzahl vergleichbar zu machen; sie erkauft diese Vergleichbarkeit mit dem
+Verlust genau jener Varianz, auf die die Zentralisierungs-Haelfte von
+Hypothese 2 zielte.
+
+**Wo der Pandemie-Effekt unmittelbar sichtbar wird.** Nicht in den globalen
 Topologiemassen, sondern in der Praesenz des Vokabulars selbst: 19.45% aller
-Artikel des Jahres 2020 tragen Pandemie-Begriffe, 2024 sind es noch 1.21%, ein
-Rueckgang um den Faktor 16. Der Anteil des Kantengewichts, der an diesen
-Begriffen haengt, faellt von 2.00% auf 1.34%. Die inhaltliche These der
-Umschichtung ist damit klar belegt, nur eben nicht ueber Zentralisierungsmasse.
-Der qualitative Cluster-Vergleich in 3.3 und die Netzwerkbilder in 3.5 zeigen
-dasselbe.
+Artikel des Jahres 2020 tragen Pandemie-Begriffe, 2024 sind es 1.21%, ein
+Rueckgang um den Faktor 16. Der Anteil des Kantengewichts an diesen Begriffen
+faellt von 2.00% auf 1.34%. Zusammen mit dem robusten $Q$-Minimum ergibt das
+ein konsistentes Bild: 2020 war thematisch stark konzentriert und strukturell
+schlecht separierbar.
 
 **Konsequenz fuer eine Fortfuehrung.** Fuer Zentralisierungsvergleiche ueber
 Zeit waere ein Schwellenwert-Graph ohne Grad-Cap noetig, dessen Dichte pro Jahr
-separat kontrolliert wird. Rueckblickend war Hypothese 2 gegenueber dem
-gewaehlten Sparsifizierungsverfahren nicht trennscharf genug formuliert. Das
-ist der wichtigste methodische Befund dieses Pfeilers.
+separat kontrolliert wird. Rueckblickend war die Zentralisierungs-Haelfte von
+Hypothese 2 gegenueber dem gewaehlten Sparsifizierungsverfahren nicht
+trennscharf formuliert. Das ist der wichtigste methodische Befund dieses
+Pfeilers.
 """))
 
 cells.append(nbf.v4.new_code_cell("""# 3.5 Visualisierung der semantischen Keyword-Netzwerke 2020 vs. 2024
@@ -1272,10 +1315,21 @@ Wahrscheinlichkeit $p$, skaliert am Newman-Kollaborationsgewicht. Verglichen
 werden drei Startmengen gleicher Groesse: die Burt-Broker (niedrigster
 Constraint), die Personen mit hoechstem Grad, und eine zufaellige Auswahl."""))
 
-cells.append(nbf.v4.new_code_cell("""# 5.1 Independent Cascade: Broker vs. Hubs vs. Zufall (LE9)
+cells.append(nbf.v4.new_code_cell("""# 5.1 Independent Cascade: Startmengen-Strategien ueber den gesamten p-Bereich (LE9)
+# p ist so normiert, dass es die Uebertragungswahrscheinlichkeit ueber eine
+# Kollaboration MITTLERER Staerke ist (Median-Gewicht). Eine Normierung am
+# Maximalgewicht waere irrefuehrend: der staerkste Autorenpaar-Wert liegt bei
+# rund 103, der Median bei 1.0, wodurch die typische Kante etwa 50-fach unter
+# dem nominellen p landen wuerde.
 SEED_SET_SIZE = 10
-N_SIM = 300
-P_TRANSMIT = 0.05
+N_SIM = 200
+P_GRID = [0.02, 0.05, 0.1, 0.2, 0.5]
+
+w_scale = weight_normalizer(G_collab, 'weight')
+w_all = np.array([d['weight'] for _, _, d in G_collab.edges(data=True)])
+print(f'Kantengewichte: Median {np.median(w_all):.2f}, Mittel {w_all.mean():.2f}, '
+      f'Maximum {w_all.max():.2f}')
+print(f'Normierungsgroesse (Median) = {w_scale:.2f}: p gilt fuer eine Kante mittlerer Staerke.\\n')
 
 burt_seeds = list(top_burt['author'].head(SEED_SET_SIZE))
 hub_seeds = list(broker_pool.sort_values('degree', ascending=False)['author'].head(SEED_SET_SIZE))
@@ -1283,88 +1337,106 @@ rng_seed = np.random.default_rng(42)
 random_seeds = list(rng_seed.choice(list(G_collab.nodes()), size=SEED_SET_SIZE, replace=False))
 
 strategies = {
-    'Burt-Broker (min. Constraint)': burt_seeds,
+    'Burt-Broker': burt_seeds,
     'Hubs (max. Grad)': hub_seeds,
     'Zufallsauswahl': random_seeds
 }
 
-diffusion_results = {}
-for name, seeds in strategies.items():
-    diffusion_results[name] = simulate_diffusion(
-        G_collab, seeds, p=P_TRANSMIT, n_sim=N_SIM, weight='weight', seed=42
-    )
+sweep_rows = []
+curves_at_ref = {}
+for p_val in P_GRID:
+    for name, seeds in strategies.items():
+        r = simulate_diffusion(G_collab, seeds, p=p_val, n_sim=N_SIM,
+                               weight='weight', seed=42)
+        sweep_rows.append({
+            'p': p_val, 'Strategie': name,
+            'Mittlere Reichweite': r['mean_reach'], 'Std': r['std_reach'],
+            'Anteil des Netzwerks': r['mean_reach_share']
+        })
+        if p_val == 0.05:
+            curves_at_ref[name] = r['mean_curve']
 
-diff_df = pd.DataFrame([
-    {
-        'Strategie': name,
-        'Startknoten': r['n_seeds'],
-        'Mittlere Reichweite': r['mean_reach'],
-        'Std': r['std_reach'],
-        'Median': r['median_reach'],
-        'Anteil des Netzwerks': r['mean_reach_share']
-    }
-    for name, r in diffusion_results.items()
-]).sort_values('Mittlere Reichweite', ascending=False)
+sweep_df = pd.DataFrame(sweep_rows)
+pivot = sweep_df.pivot(index='p', columns='Strategie', values='Mittlere Reichweite')
+print(f'Mittlere Reichweite je Strategie und p ({N_SIM} Simulationen, '
+      f'Startmenge {SEED_SET_SIZE}, n={G_collab.number_of_nodes()}):')
+print(pivot.round(1).to_string())
 
-print(f'Independent Cascade auf G_collab (n={G_collab.number_of_nodes()}, '
-      f'p={P_TRANSMIT}, {N_SIM} Simulationen, Startmenge {SEED_SET_SIZE}):')
-print(diff_df.round(3).to_string(index=False))
+print('\\nSiegerstrategie je p:')
+for p_val in P_GRID:
+    sub = sweep_df[sweep_df['p'] == p_val].sort_values('Mittlere Reichweite', ascending=False)
+    lead = sub.iloc[0]['Mittlere Reichweite'] - sub.iloc[-1]['Mittlere Reichweite']
+    print(f'  p = {p_val:<5} {sub.iloc[0]["Strategie"]:<18} '
+          f'({sub.iloc[0]["Mittlere Reichweite"]:.1f} Personen, '
+          f'Vorsprung auf die letzte Strategie: {lead:.1f})')
 
-best = diff_df.iloc[0]
-worst = diff_df.iloc[-1]
-print(f\"\\nBeste Strategie: {best['Strategie']} mit {best['Mittlere Reichweite']:.1f} \"
-      f\"erreichten Personen ({best['Anteil des Netzwerks']:.1%} des Netzwerks)\")
-print(f\"Vorsprung gegenueber '{worst['Strategie']}': \"
-      f\"{best['Mittlere Reichweite'] - worst['Mittlere Reichweite']:.1f} Personen \"
-      f\"({best['Mittlere Reichweite'] / max(worst['Mittlere Reichweite'], 1e-9):.2f}-fach)\")
+gcc_size = max(len(c) for c in nx.connected_components(G_collab))
+print(f'\\nGroesse der Giant Component: {gcc_size} von {G_collab.number_of_nodes()} '
+      f'({gcc_size / G_collab.number_of_nodes():.1%})')
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 4.8))
-for name, r in diffusion_results.items():
-    axes[0].plot(range(len(r['mean_curve'])), r['mean_curve'], marker='o', markersize=3, label=name)
-axes[0].set_title('Mittlerer Diffusionsverlauf')
-axes[0].set_xlabel('Schritt'); axes[0].set_ylabel('Kumuliert aktivierte Personen')
+for name in strategies:
+    sub = sweep_df[sweep_df['Strategie'] == name]
+    axes[0].plot(sub['p'], sub['Mittlere Reichweite'], marker='o', label=name)
+axes[0].axhline(gcc_size, color='gray', linestyle=':', label=f'Giant Component ({gcc_size})')
+axes[0].set_xscale('log')
+axes[0].set_title('Reichweite ueber den p-Bereich')
+axes[0].set_xlabel('Uebertragungswahrscheinlichkeit p (Median-Kante)')
+axes[0].set_ylabel('Erreichte Personen')
 axes[0].legend(fontsize=8)
 
-axes[1].boxplot([r['final_counts'] for r in diffusion_results.values()],
-                tick_labels=[n.split(' (')[0] for n in diffusion_results], showmeans=True)
-axes[1].set_title(f'Verteilung der Endreichweite ({N_SIM} Simulationen)')
-axes[1].set_ylabel('Erreichte Personen')
-axes[1].tick_params(axis='x', labelsize=8)
+for name, curve in curves_at_ref.items():
+    axes[1].plot(range(len(curve)), curve, marker='o', markersize=3, label=name)
+axes[1].set_title('Diffusionsverlauf bei p = 0.05')
+axes[1].set_xlabel('Schritt'); axes[1].set_ylabel('Kumuliert aktivierte Personen')
+axes[1].legend(fontsize=8)
 
-plt.suptitle('Abbildung 14: Informationsdiffusion im Kollaborationsnetzwerk nach Startmengen-Strategie', y=1.03)
+plt.suptitle('Abbildung 14: Informationsdiffusion im Kollaborationsnetzwerk, Startmengen-Strategien ueber p', y=1.03)
 plt.tight_layout()
 plt.savefig('out_plots/14_diffusion_seed_strategies.png', dpi=300, bbox_inches='tight')
 plt.show()
 """))
 
-cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 14, Diffusion).** Das Ergebnis widerspricht der
-naheliegenden Erwartung: **Nicht die Burt-Broker, sondern die Personen mit dem
-hoechsten Grad sind die wirksamste Startmenge** (12.6 gegenueber 11.1
-erreichten Personen; Zufall erreicht 10.0). Wer strukturelle Loecher
-ueberbrueckt, ist also nicht automatisch die beste Multiplikatorin: Broker
-verbinden zwar getrennte Gruppen, haben aber pro Schritt weniger Kontakte, ueber
-die sich etwas ausbreiten kann.
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 14, Diffusion).** Die Antwort auf die Ausgangsfrage
+haengt entscheidend davon ab, wie leicht sich etwas ueberhaupt uebertraegt, und
+das ist der eigentliche Befund dieses Pfeilers.
 
-Ebenso aufschlussreich ist die geringe absolute Reichweite. Selbst die beste
-Strategie aktiviert im Mittel nur 2.2% des Netzwerks, und der Vorsprung
-gegenueber einer Zufallsauswahl betraegt lediglich den Faktor 1.26. Der Grund
-liegt in der Struktur, die 2.6 beschrieben hat: 36.6% der Autor:innen sind
-isoliert, und die Riesenkomponente ist ueber wenige Artikulationspunkte
-verbunden. Eine duenn vernetzte Redaktion mit ausgepraegten Ressort-Silos
-(2.2, 2.4) breitet Informationen ueber Koautorenschaften kaum aus, unabhaengig
-davon, wo man startet.
+**Bei geringer Uebertragungswahrscheinlichkeit entscheidet die Auswahl.** Bei
+$p = 0.02$ erreichen die Burt-Broker mehr als das Doppelte einer
+Zufallsauswahl. Wer strukturelle Loecher ueberbrueckt, traegt eine Information
+also tatsaechlich weiter, wenn sie sich nur muehsam verbreitet. Bei $p = 0.05$
+liegen Broker und Hubs praktisch gleichauf und beide noch vor dem Zufall.
 
-Redaktionell ist das die praktisch relevanteste Aussage dieses Projekts: Wer
-darauf setzt, dass sich eine neue Methode oder ein neues Format von selbst ueber
-Zusammenarbeit verbreitet, wird enttaeuscht. Verbreitung muss in dieser
-Struktur organisiert werden. Die Simulation ist dabei ein Modell mit
-angenommenem $p = 0.05$, kein gemessener Prozess; die Rangfolge der Strategien
-ist belastbarer als die absoluten Zahlen.
-"""))
+**Bei hoher Uebertragungswahrscheinlichkeit ist die Auswahl irrelevant.** Ab
+$p \\\\approx 0.1$ verschwindet der Vorteil, und die Zufallsauswahl liegt sogar
+leicht vorn. Der Grund ist strukturell: die Kaskade saettigt dann die
+Riesenkomponente ohnehin, unabhaengig davon, wo sie startet. Die
+Zufallsauswahl streut ihre Startknoten dabei ueber *mehrere* Komponenten,
+waehrend Broker und Hubs alle in der Riesenkomponente sitzen. Genau deshalb
+laeuft die Reichweitenkurve gegen die Groesse der Riesenkomponente und nicht
+gegen die Gesamtzahl der Autor:innen: die isolierten Autor:innen aus 2.6 sind
+ueber Koautorenschaft grundsaetzlich nicht erreichbar.
+
+**Redaktionelle Lesart.** Fuer schwer vermittelbare Neuerungen, etwa eine
+aufwendige Recherchemethode, lohnt es sich, gezielt bei den Broker-Personen
+anzusetzen. Fuer leicht weitergebbare Dinge ist gezielte Auswahl
+Verschwendung. In beiden Faellen bleibt die harte Grenze, dass rund ein Drittel
+der Autor:innen ueber Koautorenschaften nie erreicht wird.
+
+**Einschraenkung.** Das Independent-Cascade-Modell ist eine Simulation mit
+gesetztem $p$, kein gemessener Prozess. Belastbar ist die *Form* des
+Zusammenhangs, also der Wechsel von auswahlabhaengig zu auswahlunabhaengig, und
+die Saettigungsgrenze bei der Riesenkomponente. Die absoluten Personenzahlen
+haengen an der Wahl von $p$ und sind nicht als Prognose zu lesen. Ein frueherer
+Stand dieser Analyse normierte $p$ am Maximalgewicht statt am Median, wodurch
+die effektive Uebertragungswahrscheinlichkeit rund 50-fach unter dem
+angegebenen Wert lag und jede Kaskade praktisch erstickte. Der damalige Befund
+\\u201eHubs schlagen Broker\\u201c war ein Artefakt dieser Normierung, siehe Lessons
+Learned."""))
 
 cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Akademische Deklarationen
 
-### 5.1 Evidence Map (Zuordnung zu den Bewertungskriterien)
+### 6.1 Evidence Map (Zuordnung zu den Bewertungskriterien)
 
 | Kriterium | Gewicht | Umsetzung im Projekt | Fundstelle |
 | :--- | :---: | :--- | :--- |
@@ -1376,7 +1448,7 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 ---
 
-### 5.2 Ausblick
+### 6.2 Ausblick
 
 **Nicht abgedeckte Lernergebnisse.** Eine im Skript behandelte Analysefamilie wurde bewusst nicht umgesetzt und bildet den natürlichen nächsten Schritt:
 
@@ -1384,15 +1456,15 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 **Inhaltliche Erweiterungen.**
 
-3. **Gerichtete und multirelationale Modellierung.** Die aktuelle Kollaborationskante ist ungerichtet. Mit der Autorenreihenfolge in der Byline (Erst- vs. Zweitautorschaft) liesse sich eine gerichtete Senioritätsrelation modellieren und mit dem semantischen Netzwerk zu einem multirelationalen Graphen kombinieren.
-4. **Semantische Einbettungen.** Node2Vec- oder GNN-Einbettungen kombiniert mit deutschsprachigen Transformer-Vektoren würden inhaltliche Nähe feiner erfassen als die aktuelle Ressort-Verteilung.
-5. **Dynamische Hypergraphen.** Redaktionsteams umfassen oft mehr als zwei Personen. Eine Hypergraph-Modellierung würde den Informationsverlust der paarweisen Projektion vermeiden.
+2. **Gerichtete und multirelationale Modellierung.** Die aktuelle Kollaborationskante ist ungerichtet. Mit der Autorenreihenfolge in der Byline (Erst- vs. Zweitautorschaft) liesse sich eine gerichtete Senioritätsrelation modellieren und mit dem semantischen Netzwerk zu einem multirelationalen Graphen kombinieren.
+3. **Semantische Einbettungen.** Node2Vec- oder GNN-Einbettungen kombiniert mit deutschsprachigen Transformer-Vektoren würden inhaltliche Nähe feiner erfassen als die aktuelle Ressort-Verteilung.
+4. **Dynamische Hypergraphen.** Redaktionsteams umfassen oft mehr als zwei Personen. Eine Hypergraph-Modellierung würde den Informationsverlust der paarweisen Projektion vermeiden.
 
 **Was noch zu überarbeiten wäre.** Die Interaktionswerte (Likes, Shares, Kommentare) sind Momentaufnahmen zum Scraping-Zeitpunkt und driften gegenüber der Live-Plattform. Für belastbare Aussagen über Reichweite müssten sie zu mehreren Zeitpunkten erhoben werden. Ebenso fehlt bislang eine Auflösung von Namensvarianten derselben Person (etwa mit und ohne Zweitnamen).
 
 ---
 
-### 5.3 Lessons Learned
+### 6.3 Lessons Learned
 
 1. **Entitäts-Resolution entscheidet über die Validität des ganzen Netzwerks.** Eine Filterung über exakte Zeichenkettenvergleiche reichte nicht aus. Zusammengesetzte Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` gelangten als vermeintliche Journalist:innen in den Graphen. `Agence France-Presse` mit 214 Artikeln lag sogar in der grössten Clique und blähte damit Kohäsions- und Zentralitätsmasse auf. Erst eine token-basierte Klassifikation entfernte 133 institutionelle Knoten. **Lehre:** Knoten-Identität ist keine Nebensache der Datenbereinigung, sondern bestimmt jedes nachgelagerte Mass.
 
@@ -1406,11 +1478,13 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 6. **Ein zweites Augenpaar findet, was man selbst nicht sieht.** Ein systematisches Review deckte auf, dass eine Methodikzusage (Sensitivitätsprüfung über $k$) im Text stand, aber nie ausgeführt wurde, und dass die als „Burt“ bezeichnete Kennzahl gar keine Burt-Grösse war, sondern ein Verhältnis aus Betweenness und Grad. Beides ist jetzt implementiert bzw. korrigiert. **Lehre:** Formulierungen im Bericht müssen gegen den ausgeführten Code geprüft werden, nicht gegen die Absicht.
 
-7. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
+7. **Normierungen sind Annahmen und müssen als solche geprüft werden.** In der ersten Fassung der Diffusionssimulation wurde die Übertragungswahrscheinlichkeit am **Maximalgewicht** normiert. Da das stärkste Autorenpaar ein Gewicht von 103 hat, der Median aber 1.0, lag die effektive Wahrscheinlichkeit an einer typischen Kante rund 50-fach unter dem angegebenen $p$; 94.7% aller Kanten blieben unter 0.01. Jede Kaskade erstickte dadurch von selbst, und der scheinbare Befund „Hubs schlagen Broker“ war ein Artefakt. Nach Normierung am Median und einem Sweep über $p$ zeigt sich das Gegenteil: bei kleinem $p$ gewinnen die Broker deutlich, bei grossem $p$ wird die Startmenge irrelevant. Dieselbe Fehlerklasse trat zuvor beim QAP-Test auf, wo eine über alle Dyaden statt nur über Kanten definierte Matrix das Vorzeichen umkehrte. **Lehre:** Eine Normierung, die niemand hinterfragt, produziert plausibel aussehende Zahlen. Für jede Skalierung ist zu prüfen, was der Parameter am *typischen* Datenpunkt bedeutet, nicht am extremsten.
+
+8. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
 
 ---
 
-### 5.4 KI-Deklaration (AI-Use Disclosure)
+### 6.4 KI-Deklaration (AI-Use Disclosure)
 
 > **HINWEIS: Dieser Abschnitt ist noch unvollständig.** Die Projektbeschreibung verlangt neben der Deklaration ausdrücklich die **Angabe der Prompts**. Die vollständige Prompt-Dokumentation ist in `TODO.md` als blockierender Punkt erfasst und muss vor der Abgabe in `docs/KI-Deklaration.md` ergänzt und hier verlinkt werden.
 

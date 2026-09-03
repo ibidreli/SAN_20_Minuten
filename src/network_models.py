@@ -616,14 +616,37 @@ def qap_correlation_test(matrix_a, matrix_b, n_perm=5000, seed=42, alternative='
 # 3e. Diffusion: Independent Cascade Model (LE9, Skript Kap. 13)
 # -------------------------------------------------------------------------
 
-def independent_cascade(G, seeds, p=0.05, weight=None, max_steps=100, rng=None):
+def weight_normalizer(G, weight='weight'):
+    """
+    Median edge weight, used as the reference point for weighted diffusion.
+
+    Normalising by the MAXIMUM weight would make p uninterpretable: on
+    G_collab the strongest collaboration pair has weight 103 while the median
+    is 1.0, so dividing by the maximum drives the typical edge's transmission
+    probability roughly 50x below the nominal p.
+    """
+    weights = [d.get(weight, 1.0) for _, _, d in G.edges(data=True)]
+    if not weights:
+        return 1.0
+    med = float(np.median(weights))
+    return med if med > 0 else 1.0
+
+
+def independent_cascade(G, seeds, p=0.05, weight=None, weight_scale=None,
+                        max_steps=100, rng=None):
     """
     Independent Cascade Model.
 
     Every newly activated node gets exactly one attempt to activate each
-    inactive neighbour, succeeding with probability p. With `weight` given, the
-    per-edge probability is scaled by the normalised edge weight, so stronger
-    collaborations transmit more readily.
+    inactive neighbour. Unweighted, that attempt succeeds with probability p.
+
+    With `weight` given, the per-edge probability is
+
+        p_uv = min(1, p * w_uv / w_median)
+
+    so that **p is exactly the transmission probability across a median-strength
+    collaboration**, stronger ties transmit more readily and weaker ones less.
+    Pass `weight_scale` to reuse a precomputed median across many simulations.
 
     Returns (activated_set, activations_per_step).
     """
@@ -632,8 +655,8 @@ def independent_cascade(G, seeds, p=0.05, weight=None, max_steps=100, rng=None):
     frontier = set(active)
     history = [len(active)]
 
-    if weight is not None:
-        w_max = max((d.get(weight, 1.0) for _, _, d in G.edges(data=True)), default=1.0) or 1.0
+    if weight is not None and weight_scale is None:
+        weight_scale = weight_normalizer(G, weight)
 
     step = 0
     while frontier and step < max_steps:
@@ -645,7 +668,7 @@ def independent_cascade(G, seeds, p=0.05, weight=None, max_steps=100, rng=None):
                     continue
                 p_uv = p
                 if weight is not None:
-                    p_uv = min(1.0, p * (G[u][v].get(weight, 1.0) / w_max) * 2.0)
+                    p_uv = min(1.0, p * (G[u][v].get(weight, 1.0) / weight_scale))
                 if rng.random() < p_uv:
                     newly.add(v)
         active |= newly
@@ -663,9 +686,11 @@ def simulate_diffusion(G, seeds, p=0.05, n_sim=200, weight=None, seed=42):
     """
     rng = np.random.default_rng(seed)
     n = G.number_of_nodes()
+    scale = weight_normalizer(G, weight) if weight is not None else None
     finals, curves = [], []
     for _ in range(n_sim):
-        active, hist = independent_cascade(G, seeds, p=p, weight=weight, rng=rng)
+        active, hist = independent_cascade(G, seeds, p=p, weight=weight,
+                                           weight_scale=scale, rng=rng)
         finals.append(len(active))
         curves.append(hist)
 
@@ -676,6 +701,7 @@ def simulate_diffusion(G, seeds, p=0.05, n_sim=200, weight=None, seed=42):
     return {
         'n_sim': n_sim,
         'p': p,
+        'weight_scale': scale,
         'n_seeds': len(set(seeds) & set(G.nodes())),
         'mean_reach': float(finals.mean()),
         'std_reach': float(finals.std()),
@@ -1142,6 +1168,27 @@ def run_synthetic_unit_tests():
     reach = simulate_diffusion(G_dif, [0], p=1.0, n_sim=5, seed=1)
     assert reach['mean_reach'] == 6, 'Isolated node must stay unreachable'
     print('  [PASS] Independent Cascade respects bounds and is reproducible.')
+
+    # 14. Weighted diffusion: p must be the probability across a MEDIAN edge.
+    G_w = nx.Graph()
+    G_w.add_edge('a', 'b', weight=1.0)
+    G_w.add_edge('b', 'c', weight=1.0)
+    G_w.add_edge('c', 'd', weight=100.0)   # one extreme tie must not distort p
+    assert abs(weight_normalizer(G_w, 'weight') - 1.0) < 1e-9, \
+        'Normalizer must be the median weight, not the maximum'
+    # With p = 1 on a median edge the transmission is certain, so the whole
+    # component activates regardless of the extreme tie.
+    got, _ = independent_cascade(G_w, ['a'], p=1.0, weight='weight',
+                                 rng=np.random.default_rng(0))
+    assert got == set(G_w.nodes()), 'p = 1 on median edges must activate everything'
+    # A below-median tie must transmit with LESS than p
+    G_w2 = nx.Graph()
+    G_w2.add_edge('x', 'y', weight=1.0)
+    G_w2.add_edge('y', 'z', weight=1.0)
+    G_w2.add_edge('z', 'w', weight=0.1)
+    scale = weight_normalizer(G_w2, 'weight')
+    assert min(1.0, 0.5 * (0.1 / scale)) < 0.5, 'Weak tie must transmit below nominal p'
+    print('  [PASS] Weighted diffusion normalises p to the median edge.')
 
     print('All unit tests passed successfully!')
 

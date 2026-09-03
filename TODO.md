@@ -15,7 +15,7 @@ Die Projektbeschreibung ist hier eindeutig:
 > von KI **ohne Deklaration & Angabe des Prompts**, usw.) fuehrt automatisch zur
 > **Note 1 fuer die komplette Gruppe**.
 
-Die aktuelle Deklaration in `src/02_analyse.ipynb`, Abschnitt 5.4, nennt zwar die
+Die aktuelle Deklaration in `src/02_analyse.ipynb`, Abschnitt 6.4, nennt zwar die
 verwendeten Werkzeuge, enthaelt aber **keine Prompts**. Das reicht nicht.
 
 Zu erledigen:
@@ -24,7 +24,7 @@ Zu erledigen:
 - [ ] Prompts aus den Claude-Code-Sessions exportieren
 - [ ] Beides als `docs/KI-Deklaration.md` zusammenfuehren, chronologisch, mit
       Angabe welches Werkzeug welchen Teil erzeugt hat
-- [ ] Abschnitt 5.4 im Notebook auf dieses Dokument verweisen lassen
+- [ ] Abschnitt 6.4 im Notebook auf dieses Dokument verweisen lassen
 - [ ] Mit Elias abgleichen, ob er weitere KI-Nutzung zu deklarieren hat
 
 ---
