@@ -120,8 +120,6 @@ celerybeat.pid
 
 # SageMath parsed files
 *.sage.py
-*.csv
-*.ipynb
 
 # Environments
 .env
@@ -162,3 +160,17 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+.DS_Store
+
+# --- SAN 20 Minuten project rules ---
+# Raw and derived datasets stay out of git (324 MB raw + 33 MB parquet);
+# regenerate with src/clean_dataset.py, integrity checked via data/manifest.json
+data/*.csv
+data/*.parquet
+temp.csv
+
+# Notebook checkpoints, but notebooks themselves ARE tracked (graded deliverables)
+.ipynb_checkpoints/
+
+# Editor / tooling noise
+*.bak

@@ -1,13 +1,37 @@
-newspaper3k==0.2.8
-pandas==2.2.2
-lxml_html_clean
-trafilatura 
-yake
-matplotlib
-seaborn
-pandas 
-networkx 
-matplotlib 
-tqdm
-pyvis 
-pandas
+# SAN 20 Minuten — Projektabhaengigkeiten
+#
+# Zwei Teilpipelines in einem Environment:
+#   (A) Datenerhebung / Extraktion  -> data_extraction/
+#   (B) Netzwerkanalyse             -> src/, scripts/
+#
+# Versionen unter (B) sind gegen das aktive .venv geprueft.
+# Versionen unter (A) sind Mindestanforderungen: diese Pakete sind im
+# aktuellen Analyse-venv nicht installiert und daher nicht verifiziert.
+
+# --- (A) Crawling und Extraktion ---
+requests==2.34.2
+beautifulsoup4==4.15.0
+trafilatura==2.2.0
+lxml_html_clean==0.4.5
+yake>=0.4.8
+spacy>=3.7
+tqdm==4.70.0
+
+# --- (B) Netzwerkanalyse ---
+pandas==3.0.5
+numpy==2.4.6
+pyarrow==25.0.1
+networkx==3.6.1
+scipy==1.17.1
+scikit-learn==1.9.0
+statsmodels==0.15.0
+
+# --- Visualisierung ---
+matplotlib==3.11.1
+seaborn==0.13.2
+pyvis>=0.3.2
+
+# --- Notebook-Ausfuehrung ---
+ipykernel==7.3.0
+nbformat==5.11.1
+nbclient==0.11.0

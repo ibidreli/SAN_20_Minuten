@@ -1,0 +1,9 @@
+---
+title: Todes Analyse
+jupyter: python3
+---
+
+
+Ich probiere zu analysieren ob die Todesursachen von Menschen gleichverteilt sind wie sie in 20 Min gepostet werden
+
+
