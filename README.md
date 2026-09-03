@@ -34,7 +34,7 @@ python -m spacy download de_core_news_sm   # nur fuer die Extraktionspipeline
 | `data/` | Datensaetze. Rohdaten und Parquet sind bewusst **nicht** versioniert |
 | `src/00_eda.qmd` | Explorative Datenanalyse des Rohkorpus |
 | `src/01_cleaning.qmd` | Datenaufbereitung, Qualitaetspruefung, Ground-Truth-Validierung |
-| `src/clean_dataset.py` | Cleaning-Logik als Modul, erzeugt das Parquet |
+| `src/clean_dataset.py` | Cleaning-Skript, erzeugt das Parquet. Nur ausfuehren, nie importieren (siehe offene Punkte) |
 | `src/network_models.py` | Graphkonstruktion, Metriken, Link-Prediction |
 | `src/02_analyse.ipynb` | Hauptanalyse-Notebook (generiert, siehe unten) |
 | `scripts/` | Notebook-Generierung und headless Ausfuehrung |
@@ -83,6 +83,14 @@ betroffen und noch nicht final:
    hinterlegt statt aus den berechneten Werten abgeleitet.
 6. Fehlende Interaktionswerte (Likes, Kommentare) werden in
    `src/clean_dataset.py` zu 0 statt zu `NaN`.
+7. `src/clean_dataset.py` ist ein flaches Skript ohne
+   `if __name__ == "__main__":`-Guard. Ein blosser Import fuehrt die
+   gesamte Pipeline aus und ueberschreibt das Parquet.
+8. `src/clean_dataset.py` sortiert mit dem instabilen Standard-Sort und
+   vergibt `article_id` danach fortlaufend. Artikel mit identischem
+   Zeitstempel erhalten pro Lauf andere IDs, das Parquet ist damit nicht
+   bit-identisch reproduzierbar. `data/manifest.json` deckt nur die
+   Rohdaten ab, nicht das Parquet.
 
 ## Hinweis zur Nutzung von KI-Werkzeugen
 
