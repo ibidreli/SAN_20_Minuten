@@ -15,7 +15,7 @@ cells.append(nbf.v4.new_markdown_cell("""# Soziale Netzwerkanalyse: 20 Minuten (
 
 ### Abstract & Überblick
 
-Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse des Schweizer News-Portals *20 Minuten* für die fünf vollständigen Kalenderjahre 2020 bis 2024 (118'302 bereinigte Artikel, 814 Journalist:innen). Wir untersuchen **vier Pfeiler**:
+Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse des Schweizer News-Portals *20 Minuten* für die fünf vollständigen Kalenderjahre 2020 bis 2024 (118'302 bereinigte Artikel, 781 Journalist:innen). Wir untersuchen **vier Pfeiler**:
 
 1. **Pfeiler 1 (LE3, LE5, LE7): Redaktionelle Silobildung, Homophilie und Brokerage**  
    Bipartite Modellierung (Artikel-Autor) und Projektion auf ein gewichtetes Newman-Kollaborationsnetzwerk. Ressort-Homophilie über drei Nullmodelle steigender Strenge: Label-Permutation ($B=5'000$), gradtreues Maslov-Sneppen-Rewiring und **QAP** mit gemeinsamer Zeilen-/Spalten-Permutation. Brokerage in zwei Operationalisierungen, **Burts Constraint und Effective Size** sowie Betweenness-Zentralität, deren Ranglisten bewusst getrennt ausgewiesen werden. Kohäsion und strukturelle Robustheit über Cliquen, $k$-Core, Artikulationspunkte und Brücken. Interdisziplinäre Zusammenarbeit über die leakage-freie Leave-One-Out-Jensen-Shannon-Divergenz.
@@ -31,7 +31,7 @@ Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse de
 
 Nicht abgedeckt ist LE10 (Graphlets); der Ausblick benennt dies als nächsten Schritt.
 
-**Reproduzierbarkeit.** Alle Kennzahlen entstehen aus `src/network_models.py`, dessen Kernfunktionen durch 14 Unit-Tests abgesichert sind (`python src/network_models.py`). Die Datenintegrität ist über `data/manifest.json` prüfbar (`python scripts/build_manifest.py --check`). Sämtliche Abbildungen sind durchnummeriert (Abb. 1 bis 14) und im Text referenziert.
+**Reproduzierbarkeit.** Alle Kennzahlen entstehen aus `src/network_models.py`, dessen Kernfunktionen durch 17 Unit-Tests abgesichert sind (`python src/network_models.py`). Die Datenintegrität ist über `data/manifest.json` prüfbar (`python scripts/build_manifest.py --check`). Sämtliche Abbildungen sind durchnummeriert (Abb. 1 bis 14) und im Text referenziert.
 
 ---
 """))
@@ -145,8 +145,8 @@ cells.append(nbf.v4.new_markdown_cell("""## 2. Pfeiler 1: Kollaborationsstruktur
 
 cells.append(nbf.v4.new_code_cell("""# 2.1 Zentralitätsmasse & Identifikation struktureller Broker (LE5)
 deg_dict = dict(G_collab.degree())
-bet_dict = nx.betweenness_centrality(G_collab, weight='weight')
-close_dict = nx.closeness_centrality(G_collab)
+bet_dict = nx.betweenness_centrality(G_collab, weight='distance')
+close_dict = nx.closeness_centrality(G_collab, distance='distance')
 
 for n in G_collab.nodes():
     G_collab.nodes[n]['degree'] = deg_dict[n]
@@ -327,7 +327,8 @@ rewired_mean_jsd = np.zeros(B_REWIRE)
 
 G_rewire = G_collab.copy()
 for b in range(B_REWIRE):
-    nx.double_edge_swap(G_rewire, nswap=G_rewire.number_of_edges(), max_tries=G_rewire.number_of_edges() * 5)
+    nx.double_edge_swap(G_rewire, nswap=G_rewire.number_of_edges(),
+                        max_tries=G_rewire.number_of_edges() * 5, seed=b)
     jsd_vals = [
         compute_jsd(G_rewire.nodes[u]['ressort_distribution'], G_rewire.nodes[v]['ressort_distribution'])
         for u, v in G_rewire.edges()
@@ -378,7 +379,7 @@ cells.append(nbf.v4.new_code_cell("""# 2.4 Test 1C: QAP - Dyadischer Hypothesent
 
 # Analyse auf der Giant Connected Component, da Matrizen ueber isolierte Knoten
 # nur Nullzeilen beitragen wuerden.
-gcc_nodes_collab = max(nx.connected_components(G_collab), key=len)
+gcc_nodes_collab = sorted(max(nx.connected_components(G_collab), key=len))
 G_gcc_collab = G_collab.subgraph(gcc_nodes_collab).copy()
 qap_node_order = sorted(G_gcc_collab.nodes())
 print(f'QAP-Grundlage: GCC mit {len(qap_node_order)} Autor:innen, {G_gcc_collab.number_of_edges()} Kanten')
@@ -600,7 +601,7 @@ cells.append(nbf.v4.new_code_cell("""# 2.7 Visualisierung des Kollaborationsnetz
 # gemacht, und die strukturell kritischen Knoten hervorgehoben.
 os.makedirs('out_plots', exist_ok=True)
 
-btw_gcc = nx.betweenness_centrality(G_gcc_collab, weight='weight', normalized=True)
+btw_gcc = nx.betweenness_centrality(G_gcc_collab, weight='distance', normalized=True)
 
 draw_network(
     G_gcc_collab,
@@ -786,7 +787,7 @@ for k_val in [5, 10, 20]:
     bound_k = max_possible_degree_centralization(1200, k_val)
     for yr in years:
         G_k = build_annual_keyword_graph(df[df['year'] == yr], vocab, k=k_val)
-        gcc_k = G_k.subgraph(max(nx.connected_components(G_k), key=len)).copy()
+        gcc_k = G_k.subgraph(sorted(max(nx.connected_components(G_k), key=len))).copy()
         part_k = community_louvain.best_partition(G_k, weight='weight', random_state=0)
         sizes_k = np.array(list(Counter(part_k.values()).values()), dtype=float)
         sens_rows.append({
@@ -1113,7 +1114,9 @@ def evaluate_link_prediction(split):
     G_train = split['G_train']
     pos_edges = set(split['positive_edges'])
     neg_edges = set(split['negative_edges'])
-    all_pairs = list(pos_edges | neg_edges)
+    # sorted, not set order: list(set) varies per process and would change the
+    # random baseline, the Precision@k tie-break and the bootstrap resampling
+    all_pairs = sorted(pos_edges | neg_edges)
     
     y_true = np.array([1 if p in pos_edges else 0 for p in all_pairs])
     
@@ -1122,15 +1125,20 @@ def evaluate_link_prediction(split):
     
     # 2. Jaccard Coefficient
     jc_preds = nx.jaccard_coefficient(G_train, all_pairs)
-    jc_scores = np.array([p[2] for p in jc_preds])
+    jc_scores = np.round(np.array([p[2] for p in jc_preds]), 10)
     
     # 3. Adamic-Adar Index
     aa_preds = nx.adamic_adar_index(G_train, all_pairs)
-    aa_scores = np.array([p[2] for p in aa_preds])
+    # Adamic-Adar summiert 1/log(deg) ueber nx.common_neighbors, das eine Menge
+    # zurueckgibt. Die Summationsreihenfolge folgt damit der Hash-Ordnung und die
+    # letzten Bits unterscheiden sich zwischen Prozessen, was Gleichstaende
+    # unterschiedlich aufloest. Runden auf 10 Nachkommastellen entfernt dieses
+    # Rauschen, ohne die Rangfolge zu beruehren.
+    aa_scores = np.round(np.array([p[2] for p in aa_preds]), 10)
     
     # 4. Preferential Attachment
     pa_preds = nx.preferential_attachment(G_train, all_pairs)
-    pa_scores = np.array([p[2] for p in pa_preds])
+    pa_scores = np.round(np.array([p[2] for p in pa_preds]), 10)
     
     # 5. Random Baseline
     np.random.seed(42)
@@ -1198,17 +1206,19 @@ for s in splits:
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Ergebnisse der drei Zeitfenster).** Ueber alle drei Fenster
 schlagen die nachbarschaftsbasierten Heuristiken die Zufallsbasislinie um ein
-Vielfaches. Auffaellig ist die Entwicklung der Basisrate: sie steigt von 1.4%
-im ersten auf 5.4% im letzten Fenster, weil mit laengerem Trainingszeitraum
+Vielfaches. Auffaellig ist die Entwicklung der Basisrate: sie steigt von 1.64%
+im ersten auf 5.39% im letzten Fenster, weil mit laengerem Trainingszeitraum
 mehr Autor:innen ueberhaupt als Kandidatenpaare in Frage kommen und die
 Redaktion in den spaeteren Jahren staerker in Teams arbeitet.
 
-Entsprechend steigen auch die absoluten Guetewerte: die PR-AUC von Adamic-Adar
-waechst von 0.102 auf 0.187. Das ist kein reiner Modellgewinn, sondern
+Die absoluten Guetewerte folgen dieser Basisrate allerdings nicht monoton: die
+PR-AUC von Adamic-Adar liegt bei 0.1034, faellt im mittleren Fenster auf 0.0865
+und steigt im letzten auf 0.1939. Das ist kein reiner Modellgewinn, sondern
 teilweise ein Effekt der guenstigeren Basisrate, weshalb der Vergleich immer
 gegen die Zufallsbasislinie desselben Fensters zu lesen ist. Die Rangfolge der
-Verfahren ist nicht ueber alle Fenster identisch: im mittleren Fenster liegt
-Jaccard knapp vor Adamic-Adar. Die statistische Absicherung erfolgt im
+Verfahren ist nicht ueber alle Fenster identisch: im ersten Fenster liegt
+Jaccard mit 0.1060 knapp vor Adamic-Adar mit 0.1034, in den beiden folgenden
+Fenstern liegt Adamic-Adar vorn. Die statistische Absicherung erfolgt im
 Anschluss.
 """))
 
@@ -1280,23 +1290,23 @@ print(f'Bester Algorithmus im finalen Fenster nach PR-AUC: {best_algo[0]} ({best
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 13, Link-Prediction).** Alle vier Heuristiken
 schlagen die Zufallsbasislinie deutlich, und der Abstand waechst ueber die drei
-Zeitfenster: im letzten Fenster erreicht Adamic-Adar eine PR-AUC von $0.1872$
-gegenueber $0.0575$ fuer Zufall, also mehr als das Dreifache, bei einer
-Basisrate von nur 5.4%.
+Zeitfenster: im letzten Fenster erreicht Adamic-Adar eine PR-AUC von $0.1939$
+gegenueber $0.0635$ fuer Zufall, also mehr als das Dreifache, bei einer
+Basisrate von nur 5.39%.
 
 Inhaltlich beantwortet das die Frage aus dem Meilenstein: Neue Kooperationen in
 der Redaktion entstehen **ueber gemeinsame Dritte**, nicht ueber blosse
 Prominenz. Adamic-Adar und Common Neighbors, die beide auf gemeinsame
 Nachbarn setzen, liegen vorn; Preferential Attachment, das allein auf hohe Grade
 setzt, faellt klar ab. Das Bootstrap-Konfidenzintervall der Differenz
-$[0.0358, 0.0777]$ schliesst die Null aus. Praktisch heisst das: Wer neue
+$[0.0387, 0.0811]$ schliesst die Null aus. Praktisch heisst das: Wer neue
 Zusammenarbeit anstossen will, sollte an bestehenden Teamkonstellationen
 ansetzen und nicht bei den produktivsten Einzelpersonen.
 
 Zwei Einschraenkungen. Erstens ist $\text{Precision@20} = 0.55$ im letzten
 Fenster zwar hoch, faellt bei $k = 100$ aber auf $0.37$: die Vorhersage
 funktioniert fuer die naheliegendsten Paare gut und wird danach schnell
-schwaecher. Zweitens variiert die Rangfolge zwischen den Fenstern; im mittleren
+schwaecher. Zweitens variiert die Rangfolge zwischen den Fenstern; im ersten
 Fenster liegt Jaccard knapp vor Adamic-Adar. Robust ist die Aussage
 "gemeinsame Nachbarn schlagen Prominenz", nicht die Wahl eines einzelnen
 Algorithmus.
@@ -1333,13 +1343,28 @@ print(f'Normierungsgroesse (Median) = {w_scale:.2f}: p gilt fuer eine Kante mitt
 
 burt_seeds = list(top_burt['author'].head(SEED_SET_SIZE))
 hub_seeds = list(broker_pool.sort_values('degree', ascending=False)['author'].head(SEED_SET_SIZE))
+# Die Zufallsbasislinie muss aus derselben Grundgesamtheit gezogen werden wie
+# die beiden gezielten Strategien. Eine Ziehung ueber alle 574 Knoten wuerde im
+# Mittel rund 3.7 isolierte Autor:innen enthalten, die konstruktionsbedingt
+# nichts verbreiten koennen - der Vorsprung waere dann teilweise ein
+# Komponenten-Artefakt statt ein Effekt der Auswahlstrategie.
 rng_seed = np.random.default_rng(42)
-random_seeds = list(rng_seed.choice(list(G_collab.nodes()), size=SEED_SET_SIZE, replace=False))
+random_pool = list(broker_pool['author'])
+random_seeds = list(rng_seed.choice(random_pool, size=SEED_SET_SIZE, replace=False))
+gcc_collab_nodes = max(nx.connected_components(G_collab), key=len)
+naive_seeds = list(np.random.default_rng(7).choice(list(G_collab.nodes()),
+                                                   size=SEED_SET_SIZE, replace=False))
+print(f'Zufallsbasislinie aus der Broker-Grundgesamtheit ({len(random_pool)} Personen, '
+      f'Grad >= 5 und >= 10 Artikel), nicht aus allen {G_collab.number_of_nodes()} Knoten.')
+print(f'Zum Vergleich wird zusaetzlich eine naive Ziehung ueber alle Knoten '
+      f'ausgewiesen; davon liegen {sum(1 for s in naive_seeds if s not in gcc_collab_nodes)} '
+      f'von {SEED_SET_SIZE} ausserhalb der Riesenkomponente.')
 
 strategies = {
     'Burt-Broker': burt_seeds,
     'Hubs (max. Grad)': hub_seeds,
-    'Zufallsauswahl': random_seeds
+    'Zufallsauswahl (vergleichbare Grundgesamtheit)': random_seeds,
+    'Zufallsauswahl (naiv, alle Knoten)': naive_seeds
 }
 
 sweep_rows = []
@@ -1397,42 +1422,46 @@ plt.savefig('out_plots/14_diffusion_seed_strategies.png', dpi=300, bbox_inches='
 plt.show()
 """))
 
-cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 14, Diffusion).** Die Antwort auf die Ausgangsfrage
-haengt entscheidend davon ab, wie leicht sich etwas ueberhaupt uebertraegt, und
-das ist der eigentliche Befund dieses Pfeilers.
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 14, Diffusion).** Das Ergebnis ist ein
+Negativbefund, und zwar ein belastbarer: **die Wahl der Startmenge spielt in
+diesem Netzwerk kaum eine Rolle.**
 
-**Bei geringer Uebertragungswahrscheinlichkeit entscheidet die Auswahl.** Bei
-$p = 0.02$ erreichen die Burt-Broker mehr als das Doppelte einer
-Zufallsauswahl. Wer strukturelle Loecher ueberbrueckt, traegt eine Information
-also tatsaechlich weiter, wenn sie sich nur muehsam verbreitet. Bei $p = 0.05$
-liegen Broker und Hubs praktisch gleichauf und beide noch vor dem Zufall.
+Bei $p = 0.02$ erreichen die Hubs im Mittel 89.0 Personen, die Burt-Broker
+88.4 und eine Zufallsauswahl aus derselben Grundgesamtheit 87.3. Der Vorsprung
+der gezielten Auswahl liegt damit unter 2%, und die Spannweite ueber alle vier
+Varianten betraegt weniger als 2% des Mittelwerts. Auch bei groesserem $p$
+bleiben die Unterschiede in dieser Groessenordnung, waehrend alle Strategien
+gegen die Groesse der Riesenkomponente konvergieren.
 
-**Bei hoher Uebertragungswahrscheinlichkeit ist die Auswahl irrelevant.** Ab
-$p \\\\approx 0.1$ verschwindet der Vorteil, und die Zufallsauswahl liegt sogar
-leicht vorn. Der Grund ist strukturell: die Kaskade saettigt dann die
-Riesenkomponente ohnehin, unabhaengig davon, wo sie startet. Die
-Zufallsauswahl streut ihre Startknoten dabei ueber *mehrere* Komponenten,
-waehrend Broker und Hubs alle in der Riesenkomponente sitzen. Genau deshalb
-laeuft die Reichweitenkurve gegen die Groesse der Riesenkomponente und nicht
-gegen die Gesamtzahl der Autor:innen: die isolierten Autor:innen aus 2.6 sind
-ueber Koautorenschaft grundsaetzlich nicht erreichbar.
+**Warum die naive Zufallsauswahl bei hohem $p$ sogar vorn liegt.** Sie zieht
+ihre Startknoten aus allen Autor:innen, also auch aus den kleinen Komponenten
+ausserhalb des Hauptnetzes. Sobald die Uebertragung leicht genug ist, saettigt
+jede Strategie die Riesenkomponente ohnehin; zusaetzliche Startpunkte in
+separaten Komponenten bringen dann noch ein paar Personen extra. Das ist ein
+Komponenten-Effekt, kein Strategie-Effekt, und genau deshalb wird die
+vergleichbare Zufallsbasislinie aus derselben Grundgesamtheit wie Broker und
+Hubs gezogen und die naive Ziehung nur zusaetzlich ausgewiesen.
 
-**Redaktionelle Lesart.** Fuer schwer vermittelbare Neuerungen, etwa eine
-aufwendige Recherchemethode, lohnt es sich, gezielt bei den Broker-Personen
-anzusetzen. Fuer leicht weitergebbare Dinge ist gezielte Auswahl
-Verschwendung. In beiden Faellen bleibt die harte Grenze, dass rund ein Drittel
-der Autor:innen ueber Koautorenschaften nie erreicht wird.
+**Redaktionelle Lesart.** Wer eine Neuerung in dieser Redaktion verbreiten
+will, gewinnt durch die Auswahl der Startpersonen nichts. Was
+zaehlt, ist die Struktur selbst: rund ein Drittel der Autor:innen ist ueber
+Koautorenschaften ueberhaupt nicht erreichbar (2.6), und die Riesenkomponente
+bildet eine harte Obergrenze fuer jede Kaskade. Verbreitung muss hier
+organisiert werden, sie ergibt sich nicht aus geschickter Auswahl.
 
-**Einschraenkung.** Das Independent-Cascade-Modell ist eine Simulation mit
-gesetztem $p$, kein gemessener Prozess. Belastbar ist die *Form* des
-Zusammenhangs, also der Wechsel von auswahlabhaengig zu auswahlunabhaengig, und
-die Saettigungsgrenze bei der Riesenkomponente. Die absoluten Personenzahlen
-haengen an der Wahl von $p$ und sind nicht als Prognose zu lesen. Ein frueherer
-Stand dieser Analyse normierte $p$ am Maximalgewicht statt am Median, wodurch
-die effektive Uebertragungswahrscheinlichkeit rund 50-fach unter dem
-angegebenen Wert lag und jede Kaskade praktisch erstickte. Der damalige Befund
-\\u201eHubs schlagen Broker\\u201c war ein Artefakt dieser Normierung, siehe Lessons
-Learned."""))
+**Einschraenkung und Methodengeschichte.** Das Independent-Cascade-Modell ist
+eine Simulation mit gesetztem $p$, kein gemessener Prozess. Belastbar ist die
+Aussage, dass die Strategien nahe beieinander liegen, sowie die
+Saettigungsgrenze bei der Riesenkomponente. Zwei fruehere Staende dieser
+Analyse kamen zu anderen Schluessen, beide aus methodischen Gruenden: zuerst
+war $p$ am Maximalgewicht statt am Median normiert, wodurch jede Kaskade
+erstickte und faelschlich "Hubs schlagen Broker" herauskam; danach wurde die
+Zufallsbasislinie ueber alle Knoten gezogen, waehrend Broker und Hubs aus einer
+aktivitaetsgefilterten Grundgesamtheit stammten, was den Brokern einen
+scheinbaren Vorsprung vom Faktor 2.5 verschaffte. Erst der Vergleich gleicher
+Grundgesamtheiten zeigt, dass real kein Vorsprung besteht. Siehe Lessons
+Learned.
+"""))
 
 cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Akademische Deklarationen
 
@@ -1442,7 +1471,7 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 | :--- | :---: | :--- | :--- |
 | **1. Explorative Datenanalyse & Quelldaten-Validierung** | 1 | Stratifizierte Live-Validierung ($n=60$) gegen 20min.ch mit 100% Erreichbarkeit, 100% Titel- und 98.3% Datumsübereinstimmung. Systematische Fehlwert-Analyse: 41.4% der Kommentarwerte fehlen und werden als `NaN` geführt statt als 0. Token-basierte Entitäts-Resolution entfernt 133 institutionelle Knoten (Agenturen, Desks). | `src/00_eda.qmd`, `src/01_cleaning.qmd`, `data/ground_truth_validation.md`, `src/clean_dataset.py` |
 | **2. Vielfalt der Netzwerk-Analysen** | 2 | Two-Mode-Modellierung und Newman-Projektion (LE3), Louvain-Communities, Cliquen und k-Core (LE4), Zentralität und strukturelle Löcher nach Burt (LE5), Zentralisierung $C_D$ und $C_B$, Metriken und Connectivity (LE6), drei Hypothesentests inkl. QAP (LE7), rollierende Link-Prediction (LE8), Independent-Cascade-Diffusion (LE9). Zwei komplementäre Netzwerke plus Sensitivitätsanalyse über $k$. | Kapitel 2 bis 5 |
-| **3. Nachvollziehbarkeit & korrekte Metriken** | 2 | Drei Nullmodelle unterschiedlicher Strenge: Label-Permutation, gradtreues Maslov-Sneppen-Rewiring, QAP mit gemeinsamer Zeilen-/Spalten-Permutation. Leakage-freie Leave-One-Out-JSD, OLS mit $N$, $R^2$ und ausgewiesenen Fallausschlüssen, unbalancierte Link-Prediction mit Bootstrap-CI. Jede Analyse wird auf den Anwendungsfall bezogen interpretiert; die Grenzen des Designs werden in 3.2 und 3.4 offengelegt. 13 Unit-Tests. | 2.2 bis 2.6, 3.2, 3.4, Kap. 4 und 5; `python src/network_models.py` |
+| **3. Nachvollziehbarkeit & korrekte Metriken** | 2 | Drei Nullmodelle unterschiedlicher Strenge: Label-Permutation, gradtreues Maslov-Sneppen-Rewiring, QAP mit gemeinsamer Zeilen-/Spalten-Permutation. Leakage-freie Leave-One-Out-JSD, OLS mit $N$, $R^2$ und ausgewiesenen Fallausschlüssen, unbalancierte Link-Prediction mit Bootstrap-CI. Jede Analyse wird auf den Anwendungsfall bezogen interpretiert; die Grenzen des Designs werden in 3.2 und 3.4 offengelegt. 17 Unit-Tests. | 2.2 bis 2.6, 3.2, 3.4, Kap. 4 und 5; `python src/network_models.py` |
 | **4. Anschaulichkeit der Resultate** | 1 | 14 durchnummerierte 300-DPI-Abbildungen (Abb. 1 bis 14), davon vier Netzwerk-Renderings, alle inline im Notebook sichtbar und in der Interpretation namentlich referenziert, sowie drei `.gexf`-Exporte für Gephi. | `out_plots/`, `graphen/` |
 | **5. Ausblick** | 1 | Methodische Erweiterungen und explizit benannte, bewusst nicht abgedeckte Lernergebnisse. | 5.2 |
 
@@ -1480,7 +1509,11 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 7. **Normierungen sind Annahmen und müssen als solche geprüft werden.** In der ersten Fassung der Diffusionssimulation wurde die Übertragungswahrscheinlichkeit am **Maximalgewicht** normiert. Da das stärkste Autorenpaar ein Gewicht von 103 hat, der Median aber 1.0, lag die effektive Wahrscheinlichkeit an einer typischen Kante rund 50-fach unter dem angegebenen $p$; 94.7% aller Kanten blieben unter 0.01. Jede Kaskade erstickte dadurch von selbst, und der scheinbare Befund „Hubs schlagen Broker“ war ein Artefakt. Nach Normierung am Median und einem Sweep über $p$ zeigt sich das Gegenteil: bei kleinem $p$ gewinnen die Broker deutlich, bei grossem $p$ wird die Startmenge irrelevant. Dieselbe Fehlerklasse trat zuvor beim QAP-Test auf, wo eine über alle Dyaden statt nur über Kanten definierte Matrix das Vorzeichen umkehrte. **Lehre:** Eine Normierung, die niemand hinterfragt, produziert plausibel aussehende Zahlen. Für jede Skalierung ist zu prüfen, was der Parameter am *typischen* Datenpunkt bedeutet, nicht am extremsten.
 
-8. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
+8. **Eine Baseline muss aus derselben Grundgesamtheit stammen wie die getesteten Strategien.** Nach der Korrektur der Normierung schien die Diffusion über Burt-Broker das 2.5-fache einer Zufallsauswahl zu erreichen. Auch das war ein Artefakt: die Broker- und Hub-Startmengen stammten aus einer aktivitätsgefilterten Grundgesamtheit (Grad $\geq 5$, $\geq 10$ Artikel), die Zufallsauswahl dagegen aus allen Knoten, von denen rund ein Drittel isoliert ist und konstruktionsbedingt nichts verbreiten kann. Bei gleicher Grundgesamtheit schrumpft der Vorsprung auf unter 2%. **Lehre:** Zwei Korrekturen in derselben Analyse hintereinander sind ein Warnsignal. Wer eine Kennzahl repariert, sollte im selben Schritt prüfen, ob der Vergleich, in dem sie steht, überhaupt fair ist.
+
+9. **Ein fixierter Seed garantiert noch keine Reproduzierbarkeit.** Zwei aufeinanderfolgende Läufe desselben Notebooks auf identischen Daten lieferten unterschiedliche Zahlen, obwohl überall `seed=42` gesetzt war. Ursache war die Iteration über **Mengen**: Python-Sets werden in Hash-Reihenfolge durchlaufen, und diese hängt von `PYTHONHASHSEED` ab, das pro Prozess variiert. Betroffen waren die Kandidatenreihenfolge der Link-Prediction (und damit Zufallsbasislinie, Precision@k-Tie-Break und Bootstrap-KI), die Startmengen-Iteration der Diffusion, die Knotenreihenfolge jedes aus einer Menge gebildeten Teilgraphen sowie, über die Summationsreihenfolge, die letzten Bits des Adamic-Adar-Scores. Zusätzlich war das Maslov-Sneppen-Rewiring ungeseedet, weil networkx dafür das `random`-Modul und nicht NumPy verwendet. Nach Sortierung aller Mengen-Iterationen, expliziter Seed-Übergabe und Rundung der Scores sind zwei Läufe byte-identisch. **Lehre:** Reproduzierbarkeit ist zu *prüfen*, nicht anzunehmen. Der Test ist billig: zweimal laufen lassen und die Ausgaben vergleichen.
+
+10. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
 
 ---
 

@@ -12,8 +12,12 @@ CANONICAL_RESSORTS = {
     'Schweiz', 'Ausland', 'Sport', 'Panorama', 'Wirtschaft',
     'People', 'Regionen', 'Digital', 'Wissen', 'Lifestyle',
     'Community', 'Gesundheit', 'Coronavirus', 'Kino & Streaming',
-    'Wetter', '#WIRSINDZUKUNFT'
+    'Wetter'
 }
+# Anmerkung: '#WIRSINDZUKUNFT' ist eine Kampagnen-Rubrik, kein Ressort. Sie wird
+# bewusst nach 'Andere' gemappt, damit die Ressort-Kanonik hier und in
+# src/network_models.CANONICAL_RESSORTS uebereinstimmt. Zuvor war sie hier ein
+# eigenes Ressort, im JSD-Vektor aber Teil von 'Andere' - ein stiller Bruch.
 
 AGENCY_SET = {
     'sda', 'dpa', 'afp', 'reuters', 'keystone', 'sportinformation',
@@ -34,16 +38,34 @@ PLACEHOLDER_SET = {
 # articles and lands inside the largest clique, inflating every cohesion and
 # centrality measure.
 AGENCY_TOKENS = {
+    # Nachrichtenagenturen und Agentur-Kuerzel
     'sda', 'dpa', 'afp', 'ap', 'ats', 'si', 'sid', 'apa', 'awp',
-    'reuters', 'keystone', 'sportinformation', 'tamedia', 'newsdesk',
-    'newsdeks', 'redaktion', 'sportredaktion', 'ressort', 'verlag', 'buero'
+    'reuters', 'keystone', 'sportinformation', 'tamedia',
+    # Redaktionen und Desks
+    'newsdesk', 'newsdeks', 'newdesk', 'redaktion', 'sportredaktion',
+    'ressort', 'verlag', 'buero', 'reporter', 'heute',
+    # Content-Zulieferer und Verbaende, die als Byline auftreten
+    'spot', 'spotonnews', 'sp-x', 'spx', 'storyful', 'getabstract',
+    'picstars', 'agvs', 'transhelvetica', 'ampnet', 'obs', 'pd', 'spoton'
 }
 
 # Substrings that mark an institution rather than a person
+# Vollstaendige Byline-Strings, die eine Institution bezeichnen. Notwendig fuer
+# Formen, die die Tokenisierung nicht erfasst (z.B. 'sp-x').
+AGENCY_EXACT = {
+    'sp-x', 'spx', 'sp x', 'agvs-expertenteam', 'viva-mobilitaetsexperten',
+    'viva-mobilitätsexperten', 'the associated press', 'associated press',
+    'team news', 'newsdesk', 'newdesk', 'newsdeks'
+}
+
+# Teilstrings, die eindeutig institutionell sind. Bewusst KEINE kurzen
+# Allerweltssilben wie 'verband' oder 'institut': die kaemen auch in echten
+# Nachnamen vor und wuerden Personen faelschlich entfernen.
 AGENCY_SUBSTRINGS = (
     'agence', 'presse-agentur', 'depeschenagentur', 'associated press',
-    'newsdesk', 'newsdeks', 'redaktion', 'nachrichtenagentur', 'verlag',
-    'team news', 'büro', 'buero'
+    'nachrichtenagentur', 'newsdesk', 'newsdeks', 'redaktion',
+    'experten', 'expertinnen', 'pressedienst', 'mediendienst', 'team news',
+    'büro ', 'buero '
 )
 
 
@@ -60,7 +82,7 @@ def _is_agency(name):
     compound forms like 'SDA fss' or 'Reuters SDA' are caught too.
     """
     low = name.lower().strip()
-    if low in AGENCY_SET:
+    if low in AGENCY_SET or low in AGENCY_EXACT:
         return True
     if any(s in low for s in AGENCY_SUBSTRINGS):
         return True
@@ -154,7 +176,15 @@ for chunk in pd.read_csv(RAW_PATH, chunksize=50000, low_memory=False):
     for col in ['likes', 'shares', 'kommentare']:
         chunk[col] = pd.to_numeric(chunk[col], errors='coerce').clip(lower=0).astype('Int64')
         
-    chunk['kommentare_erlaubt'] = chunk['kommentare_erlaubt'].astype(str).str.lower().isin(['true', '1', 'yes'])
+    # Fehlende Angaben bleiben fehlend, statt zu False zu werden. 'nicht erfasst'
+    # ist nicht dasselbe wie 'Kommentare deaktiviert' (vgl. Lessons Learned 2).
+    _ke_raw = chunk['kommentare_erlaubt']
+    _ke_str = _ke_raw.astype(str).str.strip().str.lower()
+    chunk['kommentare_erlaubt'] = pd.Series(
+        np.where(_ke_str.isin(['true', '1', 'yes']), True,
+                 np.where(_ke_str.isin(['false', '0', 'no']), False, None)),
+        index=chunk.index, dtype='boolean'
+    )
     
     # Select and rename clean columns
     keep_cols = [

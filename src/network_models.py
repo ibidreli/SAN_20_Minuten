@@ -240,6 +240,13 @@ def project_author_collaboration(df, min_articles=2):
             G.add_edge(
                 u, v,
                 weight=round(w, 4),
+                # networkx interprets a `weight` argument as a DISTANCE in every
+                # shortest-path based measure (betweenness, closeness). The
+                # Newman weight is a STRENGTH, so passing it directly would make
+                # the closest collaborators the farthest apart. `distance` is the
+                # inverse and is what those measures must be given, mirroring
+                # build_annual_keyword_graph.
+                distance=round(1.0 / w, 6) if w > 0 else float('inf'),
                 article_count=len(edge_articles[(u, v)]),
                 jsd=round(jsd_val, 4)
             )
@@ -400,8 +407,11 @@ def create_rolling_link_prediction_windows(df):
             'test_year': w['test_year'],
             'G_train': G_train,
             'candidate_nodes': candidate_nodes,
-            'positive_edges': list(new_edges),
-            'negative_edges': list(neg_edges)
+            # sorted, not set order: list(set) follows hash order, which varies
+            # per process and would change the candidate ordering, and with it
+            # the random baseline, the Precision@k tie-break and the bootstrap
+            'positive_edges': sorted(new_edges),
+            'negative_edges': sorted(neg_edges)
         })
         
     return eval_splits
@@ -438,22 +448,22 @@ def compute_burt_structural_holes(G, weight='weight'):
     return rows
 
 
-def freeman_centralization(G, centrality_dict):
+def freeman_centralization(centrality_dict, max_possible_sum):
     """
     Freeman network centralization for any actor-centrality measure:
 
         C = sum_i (C_max - C_i) / max_possible_sum
 
-    The denominator is the theoretical maximum of that sum, attained by a star
-    graph, so the result is comparable across networks of different size.
-    Degree centrality uses (n-1)(n-2); betweenness, already normalised to
-    [0, 1] by networkx, uses (n-1).
+    `max_possible_sum` is the theoretical maximum of that sum, attained by a
+    star graph, and must be supplied by the caller because it differs per
+    measure: (n-1)(n-2) for raw degree, (n-1) for a centrality already
+    normalised to [0, 1]. degree_centralization() and
+    betweenness_centralization() below are the ready-made variants.
     """
     vals = np.array(list(centrality_dict.values()), dtype=float)
-    n = len(vals)
-    if n < 3:
+    if vals.size < 3 or max_possible_sum <= 0:
         return 0.0
-    return float(np.sum(vals.max() - vals))
+    return float(np.sum(vals.max() - vals) / max_possible_sum)
 
 
 def degree_centralization(G):
@@ -652,7 +662,11 @@ def independent_cascade(G, seeds, p=0.05, weight=None, weight_scale=None,
     """
     rng = rng or np.random.default_rng(42)
     active = set(seeds) & set(G.nodes())
-    frontier = set(active)
+    # Sorted, not set order: iterating a set of strings follows the hash order,
+    # which changes per process (PYTHONHASHSEED). That would change the order in
+    # which random draws are consumed and make the whole simulation
+    # irreproducible despite a fixed seed.
+    frontier = sorted(active)
     history = [len(active)]
 
     if weight is not None and weight_scale is None:
@@ -663,7 +677,7 @@ def independent_cascade(G, seeds, p=0.05, weight=None, weight_scale=None,
         step += 1
         newly = set()
         for u in frontier:
-            for v in G.neighbors(u):
+            for v in sorted(G.neighbors(u)):
                 if v in active or v in newly:
                     continue
                 p_uv = p
@@ -672,7 +686,7 @@ def independent_cascade(G, seeds, p=0.05, weight=None, weight_scale=None,
                 if rng.random() < p_uv:
                     newly.add(v)
         active |= newly
-        frontier = newly
+        frontier = sorted(newly)
         history.append(len(active))
 
     return active, history
@@ -725,13 +739,17 @@ def analyze_cohesion_and_connectivity(G, top_k=10):
     measures are computed on the giant component, since they are undefined for
     a disconnected graph.
     """
-    components = sorted(nx.connected_components(G), key=len, reverse=True)
-    gcc_nodes = components[0] if components else set()
+    # sorted node lists throughout: a subgraph built from a set inherits the
+    # set's hash-dependent iteration order, which makes find_cliques and every
+    # tie-break vary per process
+    components = sorted((sorted(c) for c in nx.connected_components(G)),
+                        key=len, reverse=True)
+    gcc_nodes = components[0] if components else []
     GCC = G.subgraph(gcc_nodes).copy()
 
     maximal_cliques = list(nx.find_cliques(GCC))
     clique_sizes = [len(c) for c in maximal_cliques]
-    largest_clique = max(maximal_cliques, key=len) if maximal_cliques else []
+    largest_clique = max(maximal_cliques, key=lambda c: (len(c), sorted(c))) if maximal_cliques else []
 
     core_numbers = nx.core_number(GCC)
     max_core = max(core_numbers.values()) if core_numbers else 0
@@ -1189,6 +1207,64 @@ def run_synthetic_unit_tests():
     scale = weight_normalizer(G_w2, 'weight')
     assert min(1.0, 0.5 * (0.1 / scale)) < 0.5, 'Weak tie must transmit below nominal p'
     print('  [PASS] Weighted diffusion normalises p to the median edge.')
+
+    # 15. Collaboration edges must carry `distance` = 1/weight, and the two must
+    # rank shortest paths in opposite directions.
+    assert 'distance' in G_toy['Alice']['Bob'], 'Collaboration edges need a distance attribute'
+    for u, v, d in G_toy.edges(data=True):
+        assert abs(d['distance'] - 1.0 / d['weight']) < 1e-6, 'distance must be 1/weight'
+    # A strong tie must be a SHORT distance
+    strong = max(G_toy.edges(data=True), key=lambda e: e[2]['weight'])
+    weak = min(G_toy.edges(data=True), key=lambda e: e[2]['weight'])
+    assert strong[2]['distance'] < weak[2]['distance'], \
+        'The strongest collaboration must be the shortest distance'
+    # freeman_centralization must normalise: a star is 1.0, a ring is 0.0
+    star_f = nx.star_graph(6)
+    deg = dict(star_f.degree())
+    n_f = star_f.number_of_nodes()
+    assert abs(freeman_centralization(deg, (n_f - 1) * (n_f - 2)) - 1.0) < 1e-9, \
+        'Freeman centralization of a star must be 1.0'
+    assert freeman_centralization(dict(nx.cycle_graph(7).degree()), 6 * 5) < 1e-9, \
+        'Freeman centralization of a ring must be 0.0'
+    print('  [PASS] Edge distance is 1/weight and Freeman centralization normalises.')
+
+    # 16. Diffusion must be reproducible regardless of PYTHONHASHSEED. Iterating
+    # a set of node names follows hash order, which varies per process; the
+    # implementation therefore iterates sorted node lists.
+    G_hash = nx.Graph()
+    for i in range(30):
+        G_hash.add_edge(f'node_{i}', f'node_{(i + 1) % 30}', weight=1.0)
+        G_hash.add_edge(f'node_{i}', f'node_{(i + 7) % 30}', weight=1.0)
+    seeds_h = ['node_0', 'node_5']
+    a1 = simulate_diffusion(G_hash, seeds_h, p=0.3, n_sim=25, weight='weight', seed=42)
+    a2 = simulate_diffusion(G_hash, list(reversed(seeds_h)), p=0.3, n_sim=25,
+                            weight='weight', seed=42)
+    assert a1['mean_reach'] == a2['mean_reach'], \
+        'Diffusion must not depend on the order the seed set is passed in'
+    inner = independent_cascade(G_hash, set(seeds_h), p=0.3, weight='weight',
+                                rng=np.random.default_rng(3))
+    inner2 = independent_cascade(G_hash, set(reversed(seeds_h)), p=0.3, weight='weight',
+                                 rng=np.random.default_rng(3))
+    assert inner[0] == inner2[0], 'Cascade must be invariant to seed-set iteration order'
+    print('  [PASS] Diffusion is reproducible independent of hash order.')
+
+    # 17. Link-prediction splits must have a deterministic candidate ordering,
+    # otherwise the random baseline, the Precision@k tie-break and the
+    # bootstrap all shift per process.
+    lp_df = pd.DataFrame([
+        {'article_id': i, 'authors_clean': [f'A{i%7}', f'A{(i+1)%7}', f'A{(i+3)%7}'],
+         'author_count': 3, 'year': 2020 + (i % 5), 'ressort': 'Sport',
+         'datum': pd.Timestamp('2020-01-01', tz='UTC') + pd.Timedelta(days=i),
+         'likes': 1, 'shares': 1, 'kommentare': 1}
+        for i in range(60)
+    ])
+    splits = create_rolling_link_prediction_windows(lp_df)
+    for s in splits:
+        assert s['positive_edges'] == sorted(s['positive_edges']), \
+            'positive_edges must be sorted for reproducibility'
+        assert s['negative_edges'] == sorted(s['negative_edges']), \
+            'negative_edges must be sorted for reproducibility'
+    print('  [PASS] Link-prediction candidate ordering is deterministic.')
 
     print('All unit tests passed successfully!')
 

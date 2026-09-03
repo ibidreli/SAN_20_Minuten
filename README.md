@@ -156,20 +156,55 @@ Vier weitere Punkte kamen bei der Behebung dazu:
 | 4 | Abstract, Forschungsfrage und Kapitelnummerierung waren veraltet | Abstract auf vier Pfeiler aktualisiert, Burt-Formulierung korrigiert, Nummerierung durchgezogen |
 | 5 | $Q$ differierte zwischen 3.1 (Mittel ueber 10 Seeds) und 3.2 (Einzellauf) | Fussnote in 3.2 |
 
+### Runde 4: fuenf Befunde, davon drei blockierend
+
+| # | Befund | Behebung |
+|---|---|---|
+| 1 | **Betweenness wurde mit falscher Gewichtssemantik berechnet.** networkx liest `weight` als Distanz, das Newman-Gewicht ist aber eine Staerke. Die staerksten Kollaborationen galten damit als die laengsten Wege; 8 von 10 Namen der Broker-Tabelle waren falsch | Kollaborationskanten tragen jetzt `distance = 1/weight`, alle Pfadmasse nutzen es. Das Keyword-Netzwerk machte es bereits richtig |
+| 2 | **Der Agenturfilter liess weiter durch**: `Spot` (187 Artikel), `Agvs` (120), `Sp-X`, `Storyful`, `Picstars` u.a. `Spot` waere nach Behebung von Befund 1 in die Broker-Top-10 gerutscht | Exakt-Set plus erweiterte Tokens und Substrings; 166 institutionelle Knoten entfernt (781 statt 947 Autor:innen) |
+| 3 | **`python-louvain` fehlte in `requirements.txt`** | Ergaenzt und pruefbar (`pip install --dry-run`) |
+| 4 | Diffusions-Baseline war konfundiert: Zufallsauswahl aus allen Knoten, Broker und Hubs aus einer gefilterten Grundgesamtheit | Baseline aus derselben Grundgesamtheit; die naive Ziehung wird zusaetzlich ausgewiesen. Der scheinbare Broker-Vorsprung verschwindet |
+| 5 | `package_submission.py` haette die Aufzeichnung geloescht (`rmtree` ohne Eintrag in `LAYOUT`) | Aufzeichnung liegt in `praesentation/` ausserhalb des Pakets und wird hineinkopiert |
+
+Zusaetzlich behoben: `freeman_centralization` gab die rohe Summe statt eines
+normierten Werts zurueck; `#WIRSINDZUKUNFT` war in `clean_dataset` ein eigenes
+Ressort, im JSD-Vektor aber Teil von `Andere`; `kommentare_erlaubt` machte aus
+fehlenden Werten `False`; mehrere Zahlenangaben in der Prosa stimmten nicht mit
+der Ausgabe ueberein.
+
+### Runde 5: Reproduzierbarkeit
+
+Zwei aufeinanderfolgende Notebook-Laeufe auf identischen Daten lieferten
+unterschiedliche Zahlen, obwohl ueberall `seed=42` gesetzt war. Ursache: die
+Iteration ueber Python-**Mengen** folgt der Hash-Reihenfolge, die pro Prozess
+variiert. Betroffen waren die Kandidatenreihenfolge der Link-Prediction, die
+Diffusions-Startmengen, die Knotenreihenfolge mengenbasierter Teilgraphen und
+die Summationsreihenfolge des Adamic-Adar-Scores; zusaetzlich war das
+Maslov-Sneppen-Rewiring ungeseedet. Nach Sortierung aller Mengen-Iterationen,
+expliziter Seed-Uebergabe und Rundung der Scores sind zwei Laeufe
+**byte-identisch**. Geprueft mit:
+
+```bash
+python scripts/run_notebook.py && cp -f src/02_analyse.ipynb /tmp/a.ipynb
+python scripts/run_notebook.py   # Ausgaben mit /tmp/a.ipynb vergleichen
+```
+
 ### Auswirkungen auf die Resultate
 
 - 41.4% der Kommentarwerte (48'970 Artikel) waren faelschlich 0.
 - 1'573 Autorennamen wurden durch `capitalize()` beschaedigt. Autorennamen sind
   Knoten-IDs.
-- 133 institutionelle Knoten (Agenturen, Desks) sind entfernt: 814 statt 947
-  Autor:innen, 574 statt 639 Knoten im Kollaborationsnetzwerk.
-- PR-AUC der Link-Prediction im finalen Fenster: 0.1872 statt 0.1230.
+- 166 institutionelle Knoten (Agenturen, Desks, Content-Zulieferer) sind
+  entfernt: 781 statt 947 Autor:innen, 554 statt 639 Knoten im
+  Kollaborationsnetzwerk.
+- PR-AUC der Link-Prediction im finalen Fenster: 0.1939 statt 0.1230.
 - QAP-Korrelation Kollaborationsgewicht zu Ressort-Divergenz: -0.140 statt
   +0.148 (Vorzeichenumkehr nach Korrektur der Matrixdefinition).
-- Diffusion: nach Korrektur der Normierung erreichen die Burt-Broker bei
-  $p = 0.02$ das 2.3-fache einer Zufallsauswahl; zuvor schien der Unterschied
-  zu den Hubs entgegengesetzt.
-- Assortativitaet r = 0.3630.
+- Diffusion: nach Korrektur von Normierung UND Baseline unterscheiden sich die
+  Startmengen-Strategien um weniger als 2%. Die zuvor berichteten Vorspruenge
+  (erst "Hubs schlagen Broker", dann "Broker erreichen das 2.5-fache") waren
+  beide methodische Artefakte.
+- Assortativitaet r = 0.3621.
 
 ### Verbleibende Einschraenkung
 

@@ -45,7 +45,9 @@ Vorgegebener Ablauf aus der Projektbeschreibung:
 - [ ] 5. Ausblick
 - [ ] 6. Lessons Learned
 - [ ] Jeweils erwaehnen, in welcher Datei die Implementation zu finden ist
-- [ ] Aufzeichnung nach `Praesentation/` legen und neu paketieren
+- [ ] Aufzeichnung nach `praesentation/` im Repository legen (NICHT nach
+      `submission/.../Praesentation/`, das wird bei jedem Paketier-Lauf
+      geloescht) und anschliessend neu paketieren
 
 ---
 
@@ -77,6 +79,6 @@ Gephi-Bilder die Tool-Kompetenz aus LE2.
 
 ## Bewusst nicht abgedeckt
 
-LE9 (Diffusion, Skript Kap. 13) und LE10 (Graphlets, Skript Kap. 14) werden in
-diesem Projekt nicht behandelt. Das ist eine bewusste Entscheidung und im
-Ausblick des Notebooks als naechster Schritt benannt.
+LE10 (Graphlets, Skript Kap. 14) wird in diesem Projekt nicht behandelt. Das
+ist eine bewusste Entscheidung und im Ausblick des Notebooks als naechster
+Schritt benannt. LE9 (Diffusion) ist inzwischen als Pfeiler 4 umgesetzt.

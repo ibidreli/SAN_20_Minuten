@@ -5,9 +5,9 @@
     "2020-01-01 01:34:00+00:00",
     "2024-12-31 19:35:31.738000+00:00"
   ],
-  "multi_author_articles": 6926,
-  "single_author_articles": 76781,
-  "uncredited_or_agency_only": 34595,
+  "multi_author_articles": 6618,
+  "single_author_articles": 76655,
+  "uncredited_or_agency_only": 35029,
   "columns": {
     "article_id": "Unique sequential integer identifier",
     "url": "Full canonical 20 Minuten article URL",

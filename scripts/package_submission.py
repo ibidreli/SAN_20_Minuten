@@ -44,6 +44,13 @@ LAYOUT = [
     ('graphen', 'Graphen'),
 ]
 
+# Die aufgezeichnete Praesentation wird NICHT unter submission/ aufbewahrt.
+# build() loescht das Paketverzeichnis bei jedem Lauf komplett; eine dort
+# abgelegte Aufnahme waere beim naechsten Paketieren still verschwunden.
+# Ablageort ausserhalb des Pakets, von hier wird sie hineinkopiert:
+PRESENTATION_SOURCE_DIR = Path('praesentation')
+PRESENTATION_SUFFIXES = {'.mp4', '.mov', '.m4v', '.mkv', '.webm', '.pdf', '.pptx'}
+
 REQUIRED_DIRS = ['Meilenstein', 'Praesentation', 'Source', 'Rohdaten', 'Graphen']
 
 EXCLUDE_NAMES = {'__pycache__', '.DS_Store', '.ipynb_checkpoints'}
@@ -51,6 +58,11 @@ EXCLUDE_NAMES = {'__pycache__', '.DS_Store', '.ipynb_checkpoints'}
 PRESENTATION_PLACEHOLDER = """# Praesentation fehlt noch
 
 Hier gehoert die aufgezeichnete Praesentation hin (max. 30 Minuten).
+
+WICHTIG: Die Aufnahme NICHT direkt in dieses Verzeichnis legen. Es wird bei
+jedem Lauf von scripts/package_submission.py neu erzeugt. Die Aufnahme gehoert
+nach praesentation/ im Repository-Wurzelverzeichnis und wird von dort
+automatisch ins Paket kopiert.
 
 Vorgegebener Ablauf gemaess Projektbeschreibung:
 
@@ -125,9 +137,21 @@ def build(dry_run=False):
         else:
             shutil.copy2(s, target)
 
-    placeholder = pkg / 'Praesentation' / 'PLATZHALTER.md'
-    if not any(p for p in (pkg / 'Praesentation').iterdir() if p.name != 'PLATZHALTER.md'):
-        placeholder.write_text(PRESENTATION_PLACEHOLDER, encoding='utf-8')
+    # Aufzeichnung aus dem Quellordner uebernehmen, falls vorhanden
+    recordings = []
+    if PRESENTATION_SOURCE_DIR.is_dir():
+        recordings = sorted(f for f in PRESENTATION_SOURCE_DIR.iterdir()
+                            if f.is_file() and f.suffix.lower() in PRESENTATION_SUFFIXES)
+        for f in recordings:
+            shutil.copy2(f, pkg / 'Praesentation' / f.name)
+            print(f'Praesentation uebernommen: {f} ({human(f.stat().st_size)})')
+    if recordings:
+        print(f'{len(recordings)} Datei(en) in Praesentation/.')
+    else:
+        (pkg / 'Praesentation' / 'PLATZHALTER.md').write_text(
+            PRESENTATION_PLACEHOLDER, encoding='utf-8')
+        print(f'Keine Aufzeichnung in {PRESENTATION_SOURCE_DIR}/ gefunden, '
+              f'Platzhalter geschrieben.')
 
     # Verify the raw data survived the copy unchanged
     print('\nIntegritaetspruefung gegen data/manifest.json:')
@@ -158,7 +182,7 @@ def build(dry_run=False):
     print(f'Fertig: {zip_path} ({human(zip_path.stat().st_size)})')
 
     print('\nNaechste Schritte (siehe TODO.md):')
-    print('  1. Aufgezeichnete Praesentation nach Praesentation/ legen')
+    print('  1. Aufgezeichnete Praesentation nach praesentation/ legen (nicht ins Paket)')
     print('  2. docs/KI-Deklaration.md mit Prompts ergaenzen')
     print('  3. Neu paketieren und den Download-Link per MS Teams schicken')
     return 0 if ok else 1
