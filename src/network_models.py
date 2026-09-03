@@ -9,6 +9,8 @@ Implements:
 """
 
 import itertools
+import os
+import tempfile
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -406,6 +408,195 @@ def create_rolling_link_prediction_windows(df):
 
 
 # -------------------------------------------------------------------------
+# 3a. QAP: Dyadic Hypothesis Testing on Edge Matrices (LE7)
+# -------------------------------------------------------------------------
+
+def edge_matrix_from_edge_attribute(G, nodes, attribute, default=0.0):
+    """
+    Dense symmetric matrix of an edge attribute over the given node order.
+    Non-adjacent pairs receive `default`.
+    """
+    idx = {n: i for i, n in enumerate(nodes)}
+    M = np.full((len(nodes), len(nodes)), float(default))
+    for u, v, data in G.edges(data=True):
+        if u in idx and v in idx:
+            i, j = idx[u], idx[v]
+            val = float(data.get(attribute, default))
+            M[i, j] = val
+            M[j, i] = val
+    np.fill_diagonal(M, 0.0)
+    return M
+
+
+def edge_matrix_from_node_attribute(G, nodes, attribute, same_value=1.0, diff_value=0.0):
+    """
+    Projects a categorical NODE attribute onto a dyadic matrix: entry (i, j) is
+    `same_value` when i and j share the attribute and `diff_value` otherwise.
+
+    This is the "Knotenattribute als Kanten abbilden" strategy from LE7, which
+    turns a monadic attribute into something a dyadic QAP test can consume
+    (mixed monadic-dyadic hypothesis test).
+    """
+    labels = [G.nodes[n].get(attribute) for n in nodes]
+    n = len(nodes)
+    M = np.full((n, n), float(diff_value))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if labels[i] is not None and labels[i] == labels[j]:
+                M[i, j] = M[j, i] = float(same_value)
+    np.fill_diagonal(M, 0.0)
+    return M
+
+
+def jsd_matrix_from_profiles(G, nodes, attribute='ressort_distribution'):
+    """
+    Full pairwise JSD matrix over ALL dyads, not only adjacent ones.
+
+    Necessary for QAP: an edge-attribute matrix is zero for non-adjacent pairs,
+    so correlating it against another edge-attribute matrix partly measures
+    mere co-presence of edges rather than the substantive relationship. The
+    ressort profile exists for every author, so the divergence is defined for
+    every pair.
+    """
+    profiles = [np.asarray(G.nodes[n][attribute], dtype=float) for n in nodes]
+    n = len(nodes)
+    M = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            M[i, j] = M[j, i] = compute_jsd(profiles[i], profiles[j])
+    return M
+
+
+def _upper_triangle(M):
+    """Off-diagonal upper triangle as a flat vector (undirected: no double counting)."""
+    iu = np.triu_indices_from(M, k=1)
+    return M[iu]
+
+
+def qap_correlation_test(matrix_a, matrix_b, n_perm=5000, seed=42, alternative='greater'):
+    """
+    Quadratic Assignment Procedure (QAP) for the correlation of two dyadic
+    matrices over the same node set.
+
+    The null distribution comes from permuting node labels JOINTLY on rows and
+    columns of matrix_a. That joint permutation is what makes this QAP rather
+    than a plain element-wise shuffle: it preserves the internal dependency
+    structure of the network (a cell is not independent of the other cells in
+    its row and column), which is exactly the assumption an ordinary
+    correlation test violates on network data.
+
+    Returns a dict with the observed Pearson r, the empirical p-value, and the
+    mean and standard deviation of the null distribution.
+    """
+    A = np.asarray(matrix_a, dtype=float)
+    B = np.asarray(matrix_b, dtype=float)
+    if A.shape != B.shape or A.shape[0] != A.shape[1]:
+        raise ValueError('Both matrices must be square and of equal shape')
+
+    b_vec = _upper_triangle(B)
+
+    def _corr(a_vec):
+        if np.std(a_vec) == 0 or np.std(b_vec) == 0:
+            return 0.0
+        return float(np.corrcoef(a_vec, b_vec)[0, 1])
+
+    r_obs = _corr(_upper_triangle(A))
+
+    rng = np.random.default_rng(seed)
+    n = A.shape[0]
+    perm_r = np.zeros(n_perm)
+    for b in range(n_perm):
+        order = rng.permutation(n)
+        # Joint row/column permutation: A[order][:, order]
+        perm_r[b] = _corr(_upper_triangle(A[np.ix_(order, order)]))
+
+    if alternative == 'greater':
+        p_val = (np.sum(perm_r >= r_obs) + 1) / (n_perm + 1)
+    elif alternative == 'less':
+        p_val = (np.sum(perm_r <= r_obs) + 1) / (n_perm + 1)
+    else:
+        p_val = (np.sum(np.abs(perm_r) >= abs(r_obs)) + 1) / (n_perm + 1)
+
+    return {
+        'r_observed': r_obs,
+        'p_value': float(p_val),
+        'n_perm': n_perm,
+        'null_mean': float(perm_r.mean()),
+        'null_std': float(perm_r.std()),
+        'null_distribution': perm_r,
+        'alternative': alternative
+    }
+
+
+# -------------------------------------------------------------------------
+# 3c. Cohesion & Connectivity (LE4 / LE6, Skript Kap. 5.2 und 9)
+# -------------------------------------------------------------------------
+
+def analyze_cohesion_and_connectivity(G, top_k=10):
+    """
+    Cohesive subgroup structure and structural robustness of G.
+
+    Cliques and k-cores describe how tightly knit the collaboration core is;
+    articulation points and bridges describe how fragile it is. Connectivity
+    measures are computed on the giant component, since they are undefined for
+    a disconnected graph.
+    """
+    components = sorted(nx.connected_components(G), key=len, reverse=True)
+    gcc_nodes = components[0] if components else set()
+    GCC = G.subgraph(gcc_nodes).copy()
+
+    maximal_cliques = list(nx.find_cliques(GCC))
+    clique_sizes = [len(c) for c in maximal_cliques]
+    largest_clique = max(maximal_cliques, key=len) if maximal_cliques else []
+
+    core_numbers = nx.core_number(GCC)
+    max_core = max(core_numbers.values()) if core_numbers else 0
+    main_core = [n for n, c in core_numbers.items() if c == max_core]
+
+    articulation = sorted(nx.articulation_points(GCC))
+    bridges = list(nx.bridges(GCC))
+
+    # Rank cut vertices by how much damage their removal does
+    cut_impact = []
+    for node in articulation:
+        H = GCC.copy()
+        H.remove_node(node)
+        parts = sorted(nx.connected_components(H), key=len, reverse=True)
+        cut_impact.append({
+            'node': node,
+            'ressort': GCC.nodes[node].get('dominant_ressort'),
+            'degree': GCC.degree(node),
+            'components_after_removal': len(parts),
+            'largest_fragment': len(parts[0]) if parts else 0,
+            'nodes_split_off': len(GCC) - 1 - (len(parts[0]) if parts else 0)
+        })
+    cut_impact.sort(key=lambda d: d['nodes_split_off'], reverse=True)
+
+    return {
+        'n_components': len(components),
+        'component_sizes': [len(c) for c in components],
+        'n_isolates': sum(1 for c in components if len(c) == 1),
+        'gcc_nodes': GCC.number_of_nodes(),
+        'gcc_edges': GCC.number_of_edges(),
+        'gcc_share': GCC.number_of_nodes() / G.number_of_nodes() if G.number_of_nodes() else 0.0,
+        'n_maximal_cliques': len(maximal_cliques),
+        'clique_number': max(clique_sizes) if clique_sizes else 0,
+        'clique_size_distribution': dict(Counter(clique_sizes)),
+        'largest_clique_members': sorted(largest_clique),
+        'max_core_number': max_core,
+        'main_core_size': len(main_core),
+        'main_core_members': sorted(main_core),
+        'core_numbers': core_numbers,
+        'n_articulation_points': len(articulation),
+        'n_bridges': len(bridges),
+        'node_connectivity': nx.node_connectivity(GCC) if GCC.number_of_nodes() > 1 else 0,
+        'edge_connectivity': nx.edge_connectivity(GCC) if GCC.number_of_nodes() > 1 else 0,
+        'top_cut_vertices': cut_impact[:top_k],
+        'bridges': bridges
+    }
+
+
+# -------------------------------------------------------------------------
 # 3b. Graph Export
 # -------------------------------------------------------------------------
 
@@ -437,6 +628,106 @@ def export_graph_gexf(G, path):
         H.add_edge(u, v, **{k: _coerce(v_) for k, v_ in data.items()})
 
     nx.write_gexf(H, path)
+    return path
+
+
+# -------------------------------------------------------------------------
+# 3d. Network Rendering
+# -------------------------------------------------------------------------
+
+def draw_network(G, path, color_by=None, size_by=None, title='', highlight_nodes=None,
+                 label_top_n=0, label_nodes=None, seed=42, figsize=(13, 10), cmap_name='tab20',
+                 edge_alpha=0.15, node_size_range=(15, 700), legend_title=None):
+    """
+    Renders G to a PNG with a seeded spring layout.
+
+    color_by  -- categorical node attribute driving colour, or None for uniform
+    size_by   -- dict {node: value} driving node area, or None for uniform
+    highlight_nodes -- iterable drawn with a red outline (e.g. articulation points)
+    label_top_n -- label the n largest nodes by `size_by`
+    label_nodes -- explicit iterable of nodes to label, overrides label_top_n
+
+    The layout seed is fixed so the same graph always renders identically.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    pos = nx.spring_layout(G, seed=seed, k=1.6 / np.sqrt(max(G.number_of_nodes(), 1)),
+                           iterations=120, weight='weight')
+
+    if size_by:
+        vals = np.array([float(size_by.get(n, 0.0)) for n in G.nodes()])
+        lo, hi = vals.min(), vals.max()
+        norm = (vals - lo) / (hi - lo) if hi > lo else np.zeros_like(vals)
+        sizes = node_size_range[0] + norm * (node_size_range[1] - node_size_range[0])
+    else:
+        sizes = np.full(G.number_of_nodes(), 60.0)
+
+    if color_by:
+        cats = [G.nodes[n].get(color_by, 'Andere') for n in G.nodes()]
+        uniques = sorted(set(cats), key=str)
+        cmap = plt.get_cmap(cmap_name)
+        cmap_lookup = {c: cmap(i % cmap.N) for i, c in enumerate(uniques)}
+        colors = [cmap_lookup[c] for c in cats]
+    else:
+        colors = '#4878A8'
+        uniques, cmap_lookup = [], {}
+
+    fig, ax = plt.subplots(figsize=figsize)
+    nx.draw_networkx_edges(G, pos, ax=ax, alpha=edge_alpha, width=0.6, edge_color='#666666')
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=sizes, node_color=colors,
+                           linewidths=0.4, edgecolors='white')
+
+    if highlight_nodes:
+        hl = [n for n in highlight_nodes if n in G]
+        if hl:
+            hl_sizes = [sizes[list(G.nodes()).index(n)] for n in hl]
+            nx.draw_networkx_nodes(G, pos, nodelist=hl, ax=ax, node_size=hl_sizes,
+                                   node_color='none', linewidths=1.6, edgecolors='crimson')
+
+    if label_nodes:
+        top = [n for n in label_nodes if n in G]
+    elif label_top_n and size_by:
+        top = [n for n, _ in sorted(size_by.items(), key=lambda x: x[1], reverse=True)
+               if n in G][:label_top_n]
+    else:
+        top = []
+    if top:
+        # Offset labels above their node and give them a white halo, otherwise
+        # they collide with each other in the dense centre of the layout.
+        span_y = (max(p[1] for p in pos.values()) - min(p[1] for p in pos.values())) or 1.0
+        for rank, n in enumerate(top):
+            x, y = pos[n]
+            # Alternate the offset direction so neighbouring labels separate
+            dy = span_y * (0.035 if rank % 2 == 0 else -0.035)
+            ax.annotate(
+                n, xy=(x, y), xytext=(x, y + dy), ha='center',
+                va='bottom' if dy > 0 else 'top',
+                fontsize=8, fontweight='bold', zorder=5,
+                bbox=dict(boxstyle='round,pad=0.22', facecolor='white',
+                          edgecolor='#999999', alpha=0.85, linewidth=0.5),
+                arrowprops=dict(arrowstyle='-', color='#999999', linewidth=0.6,
+                                shrinkA=0, shrinkB=2)
+            )
+
+    handles = []
+    if uniques:
+        handles += [Line2D([0], [0], marker='o', color='w', label=str(c),
+                           markerfacecolor=cmap_lookup[c], markersize=9)
+                    for c in uniques]
+    if highlight_nodes:
+        handles.append(Line2D([0], [0], marker='o', color='w', label='Artikulationspunkt',
+                              markerfacecolor='none', markeredgecolor='crimson',
+                              markeredgewidth=1.6, markersize=9))
+    if handles:
+        ax.legend(handles=handles, title=legend_title or color_by, loc='upper left',
+                  bbox_to_anchor=(1.01, 1.0), fontsize=8, frameon=False)
+
+    ax.set_title(title, fontsize=13)
+    ax.axis('off')
+    fig.tight_layout()
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
     return path
 
 
@@ -544,7 +835,6 @@ def run_synthetic_unit_tests():
     print('  [PASS] Dominant-ressort tie-break uses the most recent publication.')
 
     # 6. GEXF export must survive numpy node attributes (ressort_distribution).
-    import tempfile, os
     with tempfile.TemporaryDirectory() as tmpdir:
         gexf_path = os.path.join(tmpdir, 'toy.gexf')
         export_graph_gexf(G_toy, gexf_path)
@@ -590,6 +880,73 @@ def run_synthetic_unit_tests():
     assert leave_one_out_profile(single['Ben'], 'Wirtschaft') is None, \
         'Single-article author must yield no leave-one-out profile'
     print('  [PASS] Leave-one-out JSD excludes the focal article.')
+
+    # 8. QAP must find no association between independent matrices and a
+    # perfect one between a matrix and itself.
+    rng_t = np.random.default_rng(7)
+    n_q = 25
+    A_rand = rng_t.random((n_q, n_q)); A_rand = (A_rand + A_rand.T) / 2
+    np.fill_diagonal(A_rand, 0.0)
+    B_rand = rng_t.random((n_q, n_q)); B_rand = (B_rand + B_rand.T) / 2
+    np.fill_diagonal(B_rand, 0.0)
+
+    qap_indep = qap_correlation_test(A_rand, B_rand, n_perm=500, seed=1)
+    assert qap_indep['p_value'] > 0.05, \
+        f"QAP must not find structure in independent matrices (p={qap_indep['p_value']})"
+    qap_self = qap_correlation_test(A_rand, A_rand, n_perm=500, seed=1)
+    assert abs(qap_self['r_observed'] - 1.0) < 1e-9, 'QAP self-correlation must be r = 1'
+    assert qap_self['p_value'] < 0.01, 'QAP self-correlation must be significant'
+    # The joint permutation must actually permute: a shuffled matrix differs
+    assert qap_indep['null_std'] > 0, 'QAP null distribution must not be degenerate'
+    print('  [PASS] QAP separates independent matrices from identical ones.')
+
+    # 9. Node attributes projected onto edges, and edge-attribute extraction.
+    G_attr = nx.Graph()
+    G_attr.add_node('a', dominant_ressort='Sport')
+    G_attr.add_node('b', dominant_ressort='Sport')
+    G_attr.add_node('c', dominant_ressort='Wirtschaft')
+    G_attr.add_edge('a', 'b', weight=2.0)
+    G_attr.add_edge('b', 'c', weight=5.0)
+    order = ['a', 'b', 'c']
+    M_same = edge_matrix_from_node_attribute(G_attr, order, 'dominant_ressort')
+    assert M_same[0, 1] == 1.0 and M_same[1, 2] == 0.0, 'Same-ressort projection wrong'
+    assert np.allclose(M_same, M_same.T), 'Projected matrix must be symmetric'
+    M_w = edge_matrix_from_edge_attribute(G_attr, order, 'weight')
+    assert M_w[0, 1] == 2.0 and M_w[1, 2] == 5.0 and M_w[0, 2] == 0.0, 'Edge matrix wrong'
+    assert M_w.trace() == 0.0, 'Diagonal must be zero'
+    print('  [PASS] Node-to-edge projection and edge matrices are correct.')
+
+    # 10. Cohesion and connectivity on a graph with a known cut vertex.
+    # Two triangles joined through the single node 'x' -> x is the only
+    # articulation point, both joining edges are bridges.
+    G_cut = nx.Graph()
+    G_cut.add_edges_from([('a', 'b'), ('b', 'c'), ('a', 'c'),
+                          ('c', 'x'), ('x', 'd'),
+                          ('d', 'e'), ('e', 'f'), ('d', 'f')])
+    G_cut.add_node('lonely')  # isolate, must not break the analysis
+    coh = analyze_cohesion_and_connectivity(G_cut)
+    assert coh['n_isolates'] == 1, 'Isolate not counted'
+    assert coh['gcc_nodes'] == 7, f"GCC should hold 7 nodes, got {coh['gcc_nodes']}"
+    assert coh['clique_number'] == 3, f"Clique number should be 3, got {coh['clique_number']}"
+    assert coh['n_articulation_points'] == 3, \
+        f"Expected 3 articulation points (c, x, d), got {coh['n_articulation_points']}"
+    assert coh['n_bridges'] == 2, f"Expected 2 bridges, got {coh['n_bridges']}"
+    assert coh['node_connectivity'] == 1, 'A graph with a cut vertex has connectivity 1'
+    assert coh['top_cut_vertices'][0]['node'] == 'x', \
+        'The most damaging cut vertex must be x (splits the graph evenly)'
+    print('  [PASS] Cohesion and connectivity detect cliques, cores and cut vertices.')
+
+    # 11. Network rendering produces a deterministic, non-trivial file.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        p1 = os.path.join(tmpdir, 'a.png')
+        p2 = os.path.join(tmpdir, 'b.png')
+        deg = dict(G_cut.degree())
+        draw_network(G_cut, p1, size_by=deg, title='Test', highlight_nodes=['x'])
+        draw_network(G_cut, p2, size_by=deg, title='Test', highlight_nodes=['x'])
+        assert os.path.getsize(p1) > 5000, 'Rendered network is suspiciously small'
+        with open(p1, 'rb') as f1, open(p2, 'rb') as f2:
+            assert f1.read() == f2.read(), 'Rendering must be deterministic'
+    print('  [PASS] Network rendering is deterministic and non-trivial.')
 
     print('All unit tests passed successfully!')
 

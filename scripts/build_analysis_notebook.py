@@ -57,6 +57,12 @@ from src.network_models import (
     create_rolling_link_prediction_windows,
     compute_leave_one_out_jsd,
     export_graph_gexf,
+    qap_correlation_test,
+    edge_matrix_from_edge_attribute,
+    edge_matrix_from_node_attribute,
+    jsd_matrix_from_profiles,
+    analyze_cohesion_and_connectivity,
+    draw_network,
     CANONICAL_RESSORTS
 )
 
@@ -237,7 +243,78 @@ plt.savefig('out_plots/04_edge_jsd_null_comparison.png', dpi=300)
 plt.show()
 """))
 
-cells.append(nbf.v4.new_code_cell("""# 2.4 Sekundäre Assoziationsanalyse: Leave-One-Out JSD vs. Leser-Shares (OLS)
+cells.append(nbf.v4.new_code_cell("""# 2.4 Test 1C: QAP - Dyadischer Hypothesentest auf Kantenmatrizen (LE7, Skript Kap. 11)
+# Tests 1A und 1B permutieren Knotenlabels bzw. die Topologie. Der QAP-Test
+# arbeitet dagegen direkt auf zwei Kantenmatrizen und permutiert Knotenlabels
+# GEMEINSAM auf Zeilen und Spalten. Nur so bleibt die netzwerkinterne
+# Abhaengigkeitsstruktur erhalten, die eine gewoehnliche Korrelation verletzt.
+
+# Analyse auf der Giant Connected Component, da Matrizen ueber isolierte Knoten
+# nur Nullzeilen beitragen wuerden.
+gcc_nodes_collab = max(nx.connected_components(G_collab), key=len)
+G_gcc_collab = G_collab.subgraph(gcc_nodes_collab).copy()
+qap_node_order = sorted(G_gcc_collab.nodes())
+print(f'QAP-Grundlage: GCC mit {len(qap_node_order)} Autor:innen, {G_gcc_collab.number_of_edges()} Kanten')
+
+# Matrix A: Kollaborationsstaerke (Newman-Gewicht)
+M_weight = edge_matrix_from_edge_attribute(G_gcc_collab, qap_node_order, 'weight')
+# Matrix B: gleiches dominantes Ressort? (Knotenattribut auf Kanten projiziert
+# -> gemischter monadisch-dyadischer Hypothesentest gemaess LE7)
+M_same_ressort = edge_matrix_from_node_attribute(G_gcc_collab, qap_node_order, 'dominant_ressort')
+# Matrix C: Ressort-Divergenz ueber ALLE Dyaden, nicht nur ueber Kanten.
+# Eine reine Kanten-Matrix waere fuer nicht benachbarte Paare null und die
+# Korrelation wuerde teilweise blosse Kanten-Kopraesenz messen statt des
+# inhaltlichen Zusammenhangs.
+M_jsd = jsd_matrix_from_profiles(G_gcc_collab, qap_node_order)
+
+B_QAP = 2000
+
+# H1: Kollaborationen sind staerker zwischen Personen desselben Ressorts
+qap_weight_ressort = qap_correlation_test(M_weight, M_same_ressort, n_perm=B_QAP, seed=42)
+print(f\"\\nQAP 1: Kollaborationsgewicht ~ gleiches Ressort\")
+print(f\"  r = {qap_weight_ressort['r_observed']:.4f}, p = {qap_weight_ressort['p_value']:.5f} \"
+      f\"(Nullverteilung: {qap_weight_ressort['null_mean']:.4f} +/- {qap_weight_ressort['null_std']:.4f})\")
+
+# H2: Je staerker die Kollaboration, desto aehnlicher die Ressort-Profile
+# Erwartung bei Homophilie: negative Korrelation (starke Kollaboration bei
+# geringer Profil-Divergenz). Daher zweiseitig getestet.
+qap_weight_jsd = qap_correlation_test(M_weight, M_jsd, n_perm=B_QAP, seed=42, alternative='two-sided')
+print(f\"\\nQAP 2: Kollaborationsgewicht ~ Ressort-Divergenz (JSD)\")
+print(f\"  r = {qap_weight_jsd['r_observed']:.4f}, p = {qap_weight_jsd['p_value']:.5f} \"
+      f\"(Nullverteilung: {qap_weight_jsd['null_mean']:.4f} +/- {qap_weight_jsd['null_std']:.4f})\")
+
+# Visualisierung der QAP-Nullverteilung
+fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+for ax, res, lbl in [
+    (axes[0], qap_weight_ressort, 'Kollaborationsgewicht ~ gleiches Ressort'),
+    (axes[1], qap_weight_jsd, 'Kollaborationsgewicht ~ JSD')
+]:
+    p_floor = 1.0 / (res['n_perm'] + 1)
+    p_txt = f\"p < {p_floor:.4f}\" if res['p_value'] <= p_floor else f\"p = {res['p_value']:.4f}\"
+    ax.hist(res['null_distribution'], bins=40, color='lightgray', edgecolor='black',
+            alpha=0.75, density=True, label=f\"QAP-Nullmodell (B={res['n_perm']})\")
+    ax.axvline(res['r_observed'], color='crimson', linestyle='--', linewidth=2.5,
+               label=f\"Beobachtet r = {res['r_observed']:.3f} ({p_txt})\")
+    ax.set_title(lbl, fontsize=11)
+    ax.set_xlabel('Korrelationskoeffizient r')
+    ax.set_ylabel('Dichte')
+    ax.legend(fontsize=8)
+plt.suptitle('Test 1C: QAP mit gemeinsamer Zeilen-/Spalten-Permutation der Knotenlabels', y=1.03)
+plt.tight_layout()
+plt.savefig('out_plots/09_qap_null_distributions.png', dpi=300, bbox_inches='tight')
+plt.show()
+"""))
+
+cells.append(nbf.v4.new_markdown_cell('''**Interpretation (Test 1C).** Der QAP-Test bestaetigt die Ressort-Homophilie
+aus Test 1A auf dyadischer Ebene und mit einem strengeren Nullmodell: die
+gemeinsame Permutation von Zeilen und Spalten erhaelt die Netzwerkstruktur, so
+dass die Signifikanz nicht aus der blossen Autokorrelation der Adjazenzmatrix
+stammt. Fuer die Redaktion bedeutet das: Kollaborationen entstehen nicht
+zufaellig ueber Ressortgrenzen hinweg, sondern folgen der redaktionellen
+Ressortstruktur. Der zweite Test prueft die Gegenrichtung, naemlich ob starke
+Kollaborationen mit inhaltlich aehnlicheren Profilen einhergehen.'''))
+
+cells.append(nbf.v4.new_code_cell("""# 2.5 Sekundäre Assoziationsanalyse: Leave-One-Out JSD vs. Leser-Shares (OLS)
 # Die JSD für Artikel k wird aus Autorenprofilen berechnet, aus denen Artikel k
 # zuvor entfernt wurde. Ohne diesen Schritt ist der Artikel in seinem eigenen
 # Prädiktor enthalten (Leakage).
@@ -296,6 +373,102 @@ plt.show()
 """))
 
 # Chapter 3: Pillar 2
+cells.append(nbf.v4.new_code_cell("""# 2.6 Kohaesion & strukturelle Robustheit: Cliquen, k-Core, Cut-Vertices (LE4/LE6, Kap. 5.2 & 9)
+coh = analyze_cohesion_and_connectivity(G_collab, top_k=10)
+
+print('=== KOMPONENTENSTRUKTUR ===')
+print(f"Komponenten insgesamt: {coh['n_components']}")
+print(f"Giant Component: {coh['gcc_nodes']} Knoten ({coh['gcc_share']:.1%} aller Autor:innen), {coh['gcc_edges']} Kanten")
+print(f"Isolierte Autor:innen (nie im Team publiziert): {coh['n_isolates']}")
+
+print('\\n=== KOHAESIVE SUBGRUPPEN ===')
+print(f"Maximale Cliquen: {coh['n_maximal_cliques']:,}")
+print(f"Cliquenzahl (groesste vollstaendig verbundene Gruppe): {coh['clique_number']}")
+print(f"Mitglieder der groessten Clique: {', '.join(coh['largest_clique_members'])}")
+print(f"Hoechste k-Core-Zahl: {coh['max_core_number']} (Main Core: {coh['main_core_size']} Autor:innen)")
+
+print('\\n=== STRUKTURELLE ROBUSTHEIT (auf der Giant Component) ===')
+print(f"Knoten-Konnektivitaet: {coh['node_connectivity']}")
+print(f"Kanten-Konnektivitaet: {coh['edge_connectivity']}")
+print(f"Artikulationspunkte (Cut-Vertices): {coh['n_articulation_points']}")
+print(f"Bruecken (Bridges): {coh['n_bridges']}")
+
+cut_df = pd.DataFrame(coh['top_cut_vertices'])
+print('\\nKritischste Autor:innen (Entfernung spaltet die meisten Knoten ab):')
+print(cut_df[['node', 'ressort', 'degree', 'components_after_removal', 'nodes_split_off']].to_string(index=False))
+
+core_counts = Counter(coh['core_numbers'].values())
+fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+ks = sorted(core_counts)
+axes[0].bar(ks, [core_counts[k] for k in ks], color='steelblue', edgecolor='black')
+axes[0].set_title(f"k-Core-Verteilung der Giant Component (max. k = {coh['max_core_number']})")
+axes[0].set_xlabel('k-Core-Zahl'); axes[0].set_ylabel('Anzahl Autor:innen')
+
+cs = sorted(coh['clique_size_distribution'])
+axes[1].bar(cs, [coh['clique_size_distribution'][s] for s in cs], color='darkseagreen', edgecolor='black')
+axes[1].set_title(f"Groessenverteilung der {coh['n_maximal_cliques']:,} maximalen Cliquen")
+axes[1].set_xlabel('Cliquengroesse'); axes[1].set_ylabel('Anzahl Cliquen')
+axes[1].set_yscale('log')
+plt.suptitle('Kohaesion und Robustheit des Autoren-Kollaborationsnetzwerks', y=1.03)
+plt.tight_layout()
+plt.savefig('out_plots/10_cohesion_kcore_cliques.png', dpi=300, bbox_inches='tight')
+plt.show()
+"""))
+
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Kohaesion und Robustheit).** Die Zahlen beschreiben eine
+Redaktion mit einem dichten Kern und einer breiten Peripherie: ein grosser Teil
+der Autor:innen publiziert nie im Team und bleibt isoliert, waehrend der
+verbundene Kern einen hohen k-Core aufweist, also eine Gruppe, in der jede
+Person mit vielen anderen derselben Gruppe zusammenarbeitet.
+
+Redaktionell relevanter ist die Robustheit. Die Knoten-Konnektivitaet der Giant
+Component betraegt 1. Es genuegt also der Ausfall einer einzigen Person, um den
+verbundenen Teil der Redaktion in mehrere Teile zu zerlegen. Die oben
+gelisteten Artikulationspunkte sind damit keine blosse Graph-Eigenschaft,
+sondern konkrete Schluesselpersonen: faellt eine von ihnen aus, etwa durch
+Kuendigung oder laengere Abwesenheit, bricht die Zusammenarbeit zwischen ganzen
+Teilgruppen ab. Das ergaenzt die Brokerage-Analyse aus 2.1. Dort ging es darum,
+wer Informationen vermittelt, hier darum, wessen Wegfall die Struktur
+zerreisst."""))
+
+cells.append(nbf.v4.new_code_cell("""# 2.7 Visualisierung des Kollaborationsnetzwerks (Kriterium 4)
+# Zwei Perspektiven auf denselben Graphen: die Ressort-Homophilie sichtbar
+# gemacht, und die strukturell kritischen Knoten hervorgehoben.
+os.makedirs('out_plots', exist_ok=True)
+
+btw_gcc = nx.betweenness_centrality(G_gcc_collab, weight='weight', normalized=True)
+
+draw_network(
+    G_gcc_collab,
+    'out_plots/11_author_network_ressort.png',
+    color_by='dominant_ressort',
+    size_by=btw_gcc,
+    label_top_n=8,
+    title=f'Autoren-Kollaborationsnetzwerk (Giant Component, {G_gcc_collab.number_of_nodes()} Autor:innen)\\n'
+          f'Farbe = dominantes Ressort, Groesse = Betweenness-Zentralitaet',
+    legend_title='Dominantes Ressort'
+)
+
+core_num = coh['core_numbers']
+critical = [d['node'] for d in coh['top_cut_vertices']]
+draw_network(
+    G_gcc_collab,
+    'out_plots/12_author_network_connectivity.png',
+    size_by={n: core_num.get(n, 0) for n in G_gcc_collab.nodes()},
+    highlight_nodes=critical,
+    label_nodes=critical[:6],
+    node_size_range=(8, 190),
+    edge_alpha=0.22,
+    title=f"Strukturelle Robustheit: Groesse = k-Core-Zahl, rot umrandet und beschriftet = kritischste Artikulationspunkte\\n"
+          f"Knoten-Konnektivitaet der Giant Component = {coh['node_connectivity']}, "
+          f"{coh['n_articulation_points']} Artikulationspunkte, {coh['n_bridges']} Bruecken"
+)
+
+print('Netzwerk-Visualisierungen erzeugt:')
+print('  out_plots/11_author_network_ressort.png')
+print('  out_plots/12_author_network_connectivity.png')
+"""))
+
 cells.append(nbf.v4.new_markdown_cell("""## 3. Pfeiler 2: Makro-Topologie & Krisen-Evolution der Berichterstattung 2020–2024 (LE4, LE6)
 
 ### Methodik & Hypothesenprüfung
@@ -305,7 +478,8 @@ cells.append(nbf.v4.new_markdown_cell("""## 3. Pfeiler 2: Makro-Topologie & Kris
 - **Louvain Modularity ($Q$):** Stabilitätstest über 10 Zufalls-Seeds pro Jahr.
 """))
 
-cells.append(nbf.v4.new_code_cell("""import community as community_louvain
+cells.append(nbf.v4.new_code_cell("""# 3.1 Longitudinale Makro-Metriken der Keyword-Netzwerke 2020-2024 (LE6)
+import community as community_louvain
 
 vocab = extract_global_vocabulary(df, top_n=1200)
 years = [2020, 2021, 2022, 2023, 2024]
@@ -390,7 +564,7 @@ plt.savefig('out_plots/06_temporal_metrics_trajectories.png', dpi=300)
 plt.show()
 """))
 
-cells.append(nbf.v4.new_code_cell("""# 2.5 Thematische Louvain-Clusterung: 2020 (Covid-Peak) vs. 2024 (Normalisierung)
+cells.append(nbf.v4.new_code_cell("""# 3.2 Thematische Louvain-Clusterung: 2020 (Covid-Peak) vs. 2024 (Normalisierung)
 G_2020 = build_annual_keyword_graph(df[df['year'] == 2020], vocab, k=10)
 G_2024 = build_annual_keyword_graph(df[df['year'] == 2024], vocab, k=10)
 
@@ -418,7 +592,43 @@ print('=== TOP LOUVAIN THEMEN-CLUSTER 2024 (Normalisierung) ===')
 print(get_top_cluster_terms(G_2024, part_2024).to_string())
 """))
 
-cells.append(nbf.v4.new_code_cell("""# 2.6 Export der Graphen nach GEXF für Gephi
+cells.append(nbf.v4.new_code_cell("""# 3.3 Visualisierung der semantischen Keyword-Netzwerke 2020 vs. 2024
+# Farbe = Louvain-Cluster, Groesse = gewichteter Grad. Der visuelle Vergleich
+# macht die thematische Umschichtung zwischen Krisen- und Normaljahr sichtbar.
+for G_kw, part_kw, jahr in [(G_2020, part_2020, 2020), (G_2024, part_2024, 2024)]:
+    G_plot = G_kw.copy()
+    nx.set_node_attributes(G_plot, {n: f'Cluster {part_kw[n]}' for n in G_plot.nodes()}, 'cluster')
+    deg_w = dict(G_plot.degree(weight='weight'))
+    # Nur die groessten Cluster einfaerben, der Rest bleibt als 'Uebrige' zusammengefasst
+    top_clusters = [f'Cluster {c}' for c, _ in Counter(part_kw.values()).most_common(10)]
+    for n in G_plot.nodes():
+        if G_plot.nodes[n]['cluster'] not in top_clusters:
+            G_plot.nodes[n]['cluster'] = 'Uebrige'
+    draw_network(
+        G_plot,
+        f'out_plots/13_keyword_network_{jahr}.png',
+        color_by='cluster',
+        size_by=deg_w,
+        label_top_n=12,
+        title=f'Semantisches Keyword-Kookkurrenz-Netzwerk {jahr} '
+              f'({G_plot.number_of_nodes()} Begriffe, {G_plot.number_of_edges()} Kanten)\\n'
+              f'Farbe = Louvain-Cluster, Groesse = gewichteter Grad',
+        legend_title='Louvain-Cluster',
+        edge_alpha=0.10
+    )
+    print(f'out_plots/13_keyword_network_{jahr}.png erzeugt')
+"""))
+
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (semantische Netzwerke).** Der Vergleich der beiden Jahre
+zeigt die thematische Umschichtung der Berichterstattung unmittelbar: 2020 bildet
+sich ein grosser, dicht verbundener Pandemie-Cluster, der 2024 vollstaendig
+verschwunden ist und durch Finanz- und Wahlkampfthemen ersetzt wurde. Da beide
+Netzwerke ueber ein fixiertes globales Vokabular und dieselbe Mutual-k-NN-
+Sparsifizierung gebildet wurden, ist der Unterschied nicht auf abweichende
+Netzwerkdichten oder Artikelzahlen zurueckzufuehren, sondern auf tatsaechlich
+veraenderte Kookkurrenzmuster."""))
+
+cells.append(nbf.v4.new_code_cell("""# 3.4 Export der Graphen nach GEXF für Gephi
 # export_graph_gexf konvertiert numpy-Attribute (u.a. ressort_distribution) in
 # GEXF-zulässige Skalare. nx.write_gexf allein scheitert an diesen Attributen.
 import os
@@ -605,37 +815,61 @@ print(f'Bester Algorithmus im finalen Fenster nach PR-AUC: {best_algo[0]} ({best
 """))
 
 # Chapter 5: Synthesis & Evidence Map
-cells.append(nbf.v4.new_markdown_cell("""## 5. Gesamtsynthese, Presentation Evidence Map & Akademische Deklarationen
+cells.append(nbf.v4.new_markdown_cell("""## 5. Gesamtsynthese, Evidence Map & Akademische Deklarationen
 
-### 5.1 Presentation Evidence Map (Zuordnung zu Bewertungskriterien)
-Die nachfolgende Tabelle verknüpft die erarbeiteten Resultate direkt mit den fünf Kriterien des FHNW-Bewertungsrasters:
+### 5.1 Evidence Map (Zuordnung zu den Bewertungskriterien)
 
-| Kriterium | Gewicht | Umsetzung im Projekt | Zentrales Notebook-Resultat & Grafik |
+| Kriterium | Gewicht | Umsetzung im Projekt | Fundstelle |
 | :--- | :---: | :--- | :--- |
-| **1. Explorative Datenanalyse & Quelldaten-Validierung** | 1 | Stratifizierte Live-Validierung ($n=60$) mit 100% Erreichbarkeit und >86% bis 100% Feldübereinstimmung; Filterung von 14'000+ Agentur-/Platzhalter-Strings. | `data/ground_truth_validation.md`, `src/clean_dataset.py` |
-| **2. Vielfalt der Netzwerk-Analysen** | 2 | Umfassende Abdeckung von LE3 bis LE8: Two-Mode zu One-Mode Projektion, Assortativität, Brokerage, Zentralisierung, Louvain Modularity, Permutationstests und Rolling Link-Prediction. | Pfeiler 1, 2 und 3 |
-| **3. Nachvollziehbarkeit, korrekte Metriken & Plausibilität** | 2 | Mathematisch schwellenwertfreie JSD-Metrik, gradtreues Maslov-Sneppen Nullmodell, Salton-Kosinus-Normalisierung auf GCC, unbalancierte Link-Prediction mit Bootstrap-CIs. | Permutationstests in Kap. 2, Trajektorien in Kap. 3, ROC/PR in Kap. 4 |
-| **4. Anschaulichkeit der Resultate** | 1 | Hochauflösende, sauber annotierte 300-DPI Visualisierungen aller zentralen Konzepte in `out_plots/` sowie exportierte `.gexf`-Netzwerke in `graphen/`. | `out_plots/02` bis `out_plots/08` |
-| **5. Ausblick** | 1 | Fundierte Diskussion methodischer Erweiterungen (Text-Embeddings, dynamische Graph Neural Networks). | Siehe Abschnitt 5.2 |
+| **1. Explorative Datenanalyse & Quelldaten-Validierung** | 1 | Stratifizierte Live-Validierung ($n=60$) gegen 20min.ch mit 100% Erreichbarkeit, 100% Titel- und 98.3% Datumsübereinstimmung. Systematische Fehlwert-Analyse: 41.4% der Kommentarwerte fehlen und werden als `NaN` geführt statt als 0. Token-basierte Entitäts-Resolution entfernt 133 institutionelle Knoten (Agenturen, Desks). | `src/00_eda.qmd`, `src/01_cleaning.qmd`, `data/ground_truth_validation.md`, `src/clean_dataset.py` |
+| **2. Vielfalt der Netzwerk-Analysen** | 2 | Two-Mode-Modellierung und Newman-Projektion (LE3), Louvain-Communities, Cliquen und k-Core (LE4), Zentralität und Brokerage nach Burt (LE5), Netzwerk-Zentralisierung, Metriken und Connectivity (LE6), drei Hypothesentests inkl. QAP (LE7), rollierende Link-Prediction (LE8). Zwei komplementäre Netzwerke: Autoren-Kollaboration und semantische Keyword-Kookkurrenz. | Kapitel 2, 3 und 4 |
+| **3. Nachvollziehbarkeit & korrekte Metriken** | 2 | Drei Nullmodelle unterschiedlicher Strenge: Label-Permutation, gradtreues Maslov-Sneppen-Rewiring, QAP mit gemeinsamer Zeilen-/Spalten-Permutation. Leakage-freie Leave-One-Out-JSD, unbalancierte Link-Prediction mit Bootstrap-CI. Alle Kernfunktionen sind durch Unit-Tests abgesichert. | 2.2, 2.3, 2.4, 2.5, Kap. 4; `python src/network_models.py` |
+| **4. Anschaulichkeit der Resultate** | 1 | 13 beschriftete 300-DPI-Abbildungen, davon vier Netzwerk-Renderings, sowie drei `.gexf`-Exporte für Gephi. Jede Abbildung ist im Text referenziert und interpretiert. | `out_plots/`, `graphen/` |
+| **5. Ausblick** | 1 | Methodische Erweiterungen und explizit benannte, bewusst nicht abgedeckte Lernergebnisse. | 5.2 |
 
 ---
 
-### 5.2 Ausblick (Methodische Perspektiven)
-1. **Multimodale Text-Graph-Einbettungen:** Zukünftige Arbeiten könnten graphbasierte Node2Vec- oder Graph Neural Network (GNN)-Einbettungen mit dichten semantischen Vektoren (z.B. Schweizerdeutsch-/Deutsch-optimierte Transformer wie *GermanBERT* oder *Mistral*) kombinieren, um inhaltliche Nähe noch feiner zu erfassen.
-2. **Dynamische Hypergraphen:** Da journalistische Teams oft mehr als zwei Personen umfassen, würde die Modellierung als Hypergraph (wo eine Hyperkante eine beliebige Menge von Autor:innen verbindet) die Informationsverluste der paarweisen Projektion weiter reduzieren.
+### 5.2 Ausblick
+
+**Nicht abgedeckte Lernergebnisse.** Zwei im Skript behandelte Analysefamilien wurden bewusst nicht umgesetzt und bilden den natürlichen nächsten Schritt:
+
+1. **Diffusion (Kap. 13).** Das Kollaborationsnetzwerk eignet sich unmittelbar für Diffusionsmodelle: Wie breitet sich ein Thema, ein Format oder eine Recherchemethode über Koautorenschaften in der Redaktion aus? Ein Independent-Cascade-Modell auf $G_{collab}$ mit den Brokern aus 2.1 als Startmenge würde prüfen, ob genau jene Personen die effizientesten Multiplikatoren sind, die strukturell als Vermittler auffallen.
+2. **Graphlets (Kap. 14).** Graphlet-Degree-Vektoren würden erlauben, Journalist:innen nicht nach ihrem Ressort, sondern nach ihrer strukturellen Rolle zu gruppieren. Damit liesse sich prüfen, ob es wiederkehrende Kollaborationsmuster gibt, die quer zur formalen Ressortgliederung liegen.
+
+**Inhaltliche Erweiterungen.**
+
+3. **Gerichtete und multirelationale Modellierung.** Die aktuelle Kollaborationskante ist ungerichtet. Mit der Autorenreihenfolge in der Byline (Erst- vs. Zweitautorschaft) liesse sich eine gerichtete Senioritätsrelation modellieren und mit dem semantischen Netzwerk zu einem multirelationalen Graphen kombinieren.
+4. **Semantische Einbettungen.** Node2Vec- oder GNN-Einbettungen kombiniert mit deutschsprachigen Transformer-Vektoren würden inhaltliche Nähe feiner erfassen als die aktuelle Ressort-Verteilung.
+5. **Dynamische Hypergraphen.** Redaktionsteams umfassen oft mehr als zwei Personen. Eine Hypergraph-Modellierung würde den Informationsverlust der paarweisen Projektion vermeiden.
+
+**Was noch zu überarbeiten wäre.** Die Interaktionswerte (Likes, Shares, Kommentare) sind Momentaufnahmen zum Scraping-Zeitpunkt und driften gegenüber der Live-Plattform. Für belastbare Aussagen über Reichweite müssten sie zu mehreren Zeitpunkten erhoben werden. Ebenso fehlt bislang eine Auflösung von Namensvarianten derselben Person (etwa mit und ohne Zweitnamen).
 
 ---
 
 ### 5.3 Lessons Learned
-1. **Entitäts-Resolution in News-Korpora:** Die naive Filterung nach Namenslängen reichte nicht aus, da automatisierte Platzhalter wie `Undefined Undefined` und Nachrichtenagenturen (SDA, dpa) die Kollaborationsmetriken massiv verzerren. Erst eine explizite Klassifikation lieferte ein valides soziologisches Netzwerk.
-2. **Vermeidung von Dichte-Fehlschlüssen bei longitudinalen Graphen:** Der direkte Vergleich ungewichteter Netzwerkdichten über Jahre mit unterschiedlicher Artikelanzahl führt zu methodischen Trugschlüssen. Der Einsatz eines fixierten globalen Vokabulars in Kombination mit Mutual $k$-NN und normierter Zentralisierung erwies sich als unverzichtbar.
+
+1. **Entitäts-Resolution entscheidet über die Validität des ganzen Netzwerks.** Eine Filterung über exakte Zeichenkettenvergleiche reichte nicht aus. Zusammengesetzte Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` gelangten als vermeintliche Journalist:innen in den Graphen. `Agence France-Presse` mit 214 Artikeln lag sogar in der grössten Clique und blähte damit Kohäsions- und Zentralitätsmasse auf. Erst eine token-basierte Klassifikation entfernte 133 institutionelle Knoten. **Lehre:** Knoten-Identität ist keine Nebensache der Datenbereinigung, sondern bestimmt jedes nachgelagerte Mass.
+
+2. **Fehlende Werte dürfen nicht zu Nullen werden.** 41.4% der Kommentarwerte fehlen, weil die Kommentarfunktion deaktiviert oder nicht erfasst war. Als 0 kodiert hätten sie „kein Interesse“ statt „keine Messung“ bedeutet und die Regression systematisch verzerrt.
+
+3. **Nullmodelle müssen zur Datenstruktur passen.** In der Link-Prediction landeten Trainingskanten in der Negativmenge, weil Kantentupel unsortiert verglichen wurden. Beim QAP-Test korrelierten zunächst zwei Matrizen, die beide für nicht benachbarte Paare null sind, wodurch teilweise blosse Kanten-Kopräsenz gemessen wurde. Nach Korrektur auf eine über alle Dyaden definierte JSD-Matrix kehrte sich das Vorzeichen von $+0.148$ auf $-0.140$ um, was der Homophilie-Hypothese entspricht. **Lehre:** Ein plausibel aussehendes Ergebnis ist kein Korrektheitsnachweis. Beide Fehler wurden erst durch systematisches Code-Review und Unit-Tests sichtbar.
+
+4. **Dichte-Vergleiche über Zeit sind ohne Normierung wertlos.** Der direkte Vergleich von Netzwerkdichten über Jahre mit unterschiedlicher Artikelzahl führt in die Irre. Ein fixiertes globales Vokabular, Mutual-$k$-NN-Sparsifizierung und normierte Zentralisierung waren notwendig, um überhaupt vergleichbare Topologien zu erhalten.
+
+5. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
 
 ---
 
 ### 5.4 KI-Deklaration (AI-Use Disclosure)
-In Übereinstimmung mit den universitären Richtlinien zur Redlichkeit deklarieren wir:
-- Sämtliche Arbeitsschritte, Hypothesenformulierungen und Pipeline-Entwürfe wurden von den Studierenden (Elias & Luca) im Austausch mit generativen Multi-Agenten-Systemen (Antigravity/Codex) erarbeitet.
-- Die Ausführung, Validierung und Interpretation aller statistischen Analysen und Code-Skripte erfolgte unter menschlicher Aufsicht und schrittweiser Verifikation anhand der primären Fachliteratur.
+
+> **HINWEIS: Dieser Abschnitt ist noch unvollständig.** Die Projektbeschreibung verlangt neben der Deklaration ausdrücklich die **Angabe der Prompts**. Die vollständige Prompt-Dokumentation ist in `TODO.md` als blockierender Punkt erfasst und muss vor der Abgabe in `docs/KI-Deklaration.md` ergänzt und hier verlinkt werden.
+
+In Übereinstimmung mit den Richtlinien zur wissenschaftlichen Redlichkeit deklarieren wir:
+
+- Für Code-Erstellung, Refactoring und Code-Review wurden generative KI-Werkzeuge eingesetzt (Antigravity/Codex sowie Claude Code).
+- Themenwahl, Hypothesenbildung, Modellierungsentscheidungen und die Interpretation der Resultate liegen bei den Studierenden (Elias und Luca).
+- Ein systematisches Code-Review deckte mehrere methodische Fehler in KI-generiertem Code auf (Datenleck in der Link-Prediction, fehlerhafte Leave-One-Out-Berechnung, unbedingt ausgegebene Signifikanzaussagen). Diese wurden korrigiert und sind durch Unit-Tests abgesichert. Die Befunde und ihre Behebung sind in `README.md` dokumentiert.
+- **Ausstehend:** vollständige Prompt-Protokolle beider Werkzeuge.
 """))
 
 nb.cells = cells

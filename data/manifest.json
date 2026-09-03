@@ -18,8 +18,8 @@
     "line_count": 449180
   },
   "data/20min_cleaned_post2020.parquet": {
-    "size_bytes": 34385638,
+    "size_bytes": 34379657,
     "size_mb": 32.79,
-    "sha256": "7302e02b7b3fbb5f00a10e763a3923dbc9121e59926c8443e8193efc0427ed22"
+    "sha256": "756de4f5dd15cceb339818e2af74001e20d9a3e4896d14faa9d0abfe6ea6a34d"
   }
 }

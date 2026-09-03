@@ -27,6 +27,50 @@ PLACEHOLDER_SET = {
     'anonym', '20 minuten', '20 min', 'null', 'none', 'author'
 }
 
+# Exact-string matching alone is not enough: the corpus contains compound
+# bylines such as 'SDA fss', 'Rat Dpa', 'AFP her' (agency plus desk code) and
+# spelled-out institution names. Without token-level filtering these enter the
+# graph as if they were journalists. 'Agence France-Presse' alone carries 214
+# articles and lands inside the largest clique, inflating every cohesion and
+# centrality measure.
+AGENCY_TOKENS = {
+    'sda', 'dpa', 'afp', 'ap', 'ats', 'si', 'sid', 'apa', 'awp',
+    'reuters', 'keystone', 'sportinformation', 'tamedia', 'newsdesk',
+    'newsdeks', 'redaktion', 'sportredaktion', 'ressort', 'verlag', 'buero'
+}
+
+# Substrings that mark an institution rather than a person
+AGENCY_SUBSTRINGS = (
+    'agence', 'presse-agentur', 'depeschenagentur', 'associated press',
+    'newsdesk', 'newsdeks', 'redaktion', 'nachrichtenagentur', 'verlag',
+    'team news', 'büro', 'buero'
+)
+
+
+def _tokenize_byline(name):
+    return {tok.strip('.,;:()') for tok in re.split(r'[\s\-/]+', name.lower().strip())
+            if tok.strip('.,;:()')}
+
+
+def _is_agency(name):
+    """
+    True when a byline denotes a news agency or an editorial desk.
+
+    Checks the full string, then substrings, then individual tokens, so that
+    compound forms like 'SDA fss' or 'Reuters SDA' are caught too.
+    """
+    low = name.lower().strip()
+    if low in AGENCY_SET:
+        return True
+    if any(s in low for s in AGENCY_SUBSTRINGS):
+        return True
+    return bool(_tokenize_byline(name) & AGENCY_TOKENS)
+
+
+def _is_placeholder(name):
+    """True for non-agency filler bylines such as 'Undefined Undefined'."""
+    return name.lower().strip() in PLACEHOLDER_SET
+
 def clean_author_field(raw_val):
     if pd.isna(raw_val) or not str(raw_val).strip():
         return [], False
@@ -36,11 +80,10 @@ def clean_author_field(raw_val):
     has_agency = False
     
     for p in parts:
-        low = p.lower()
-        if low in AGENCY_SET:
+        if _is_agency(p):
             has_agency = True
             continue
-        if low in PLACEHOLDER_SET:
+        if _is_placeholder(p):
             continue
         if len(p) <= 3:
             continue

@@ -17,6 +17,24 @@ komplementaere Netzwerkmodelle:
 
 Die vollstaendige Projektbeschreibung liegt in `docs/SAN-Meilensteine.md`.
 
+## Durchgefuehrte Analysen
+
+| Lernergebnis | Analyse | Notebook-Abschnitt |
+|---|---|---|
+| LE3 | Two-Mode-Modellierung, Newman-Projektion auf One-Mode | 1 |
+| LE5 | Zentralitaetsmasse, Brokerage nach Burt | 2.1 |
+| LE7 | Ressort-Homophilie via Label-Permutation | 2.2 |
+| LE7 | Kanten-JSD vs. gradtreues Maslov-Sneppen-Nullmodell | 2.3 |
+| LE7 | QAP mit gemeinsamer Zeilen-/Spalten-Permutation | 2.4 |
+| LE7 | OLS auf Leave-One-Out-JSD und Leser-Shares | 2.5 |
+| LE4, LE6 | Cliquen, k-Core, Artikulationspunkte, Bruecken, Connectivity | 2.6 |
+| LE6 | Longitudinale Makro-Metriken und Zentralisierung 2020-2024 | 3.1 |
+| LE4 | Louvain-Community-Detection auf Keyword-Netzwerken | 3.2 |
+| LE8 | Rollierende temporale Link-Prediction, fuenf Algorithmen | 4 |
+
+Nicht abgedeckt: LE9 (Diffusion) und LE10 (Graphlets). Beide sind im Ausblick
+des Notebooks als naechster Schritt benannt.
+
 ## Setup
 
 ```bash
@@ -37,11 +55,12 @@ python -m spacy download de_core_news_sm   # nur fuer die Extraktionspipeline
 | `src/clean_dataset.py` | Cleaning-Skript, erzeugt das Parquet. Nur ausfuehren, nie importieren (siehe offene Punkte) |
 | `src/network_models.py` | Graphkonstruktion, Metriken, Link-Prediction |
 | `src/02_analyse.ipynb` | Hauptanalyse-Notebook (generiert, siehe unten) |
-| `scripts/` | Notebook-Generierung, headless Ausfuehrung, Manifest-Erzeugung |
+| `scripts/` | Notebook-Generierung, headless Ausfuehrung, Manifest, Abgabe-Paket |
 | `out_plots/` | Erzeugte Abbildungen fuer den Bericht |
 | `graphen/` | Exportierte `.gexf`-Graphen fuer Gephi |
 | `docs/` | Meilensteindokument, Bewertungsraster, Modulbeschreibung |
 | `explorations/` | Nebenanalysen, nicht Teil der Hauptargumentation |
+| `TODO.md` | Offene Punkte, u.a. die noch fehlende KI-Deklaration |
 
 ## Daten
 
@@ -57,6 +76,8 @@ python scripts/build_analysis_notebook.py  # erzeugt src/02_analyse.ipynb
 python scripts/run_notebook.py           # fuehrt das Notebook headless aus
 python scripts/build_manifest.py         # aktualisiert die Hashes in data/manifest.json
 python scripts/build_manifest.py --check # prueft Rohdaten und Parquet gegen das Manifest
+python scripts/package_submission.py --dry-run  # zeigt das Abgabe-Paket
+python scripts/package_submission.py            # baut submission/*.zip
 ```
 
 Die Unit-Tests der Netzwerkmodelle laufen mit:
@@ -84,23 +105,32 @@ in `src/network_models.py` abgesichert (`python src/network_models.py`):
 | 7 | Fehlende Interaktionswerte wurden zu 0 statt zu `NaN` | Nullable `Int64`; Aggregation mit `nanmean` |
 | 8 | `article_id` war nicht reproduzierbar (instabiler Sort), Manifest deckte das Parquet nicht ab | Stabiler Sort auf `(datum, url)`; `scripts/build_manifest.py` hasht auch das Parquet |
 
-Zwei weitere Punkte kamen bei der Behebung dazu:
+Vier weitere Punkte kamen bei der Behebung dazu:
 
 - **Precision@k** wurde innerhalb grosser Gruppen identischer Scores durch die
   Array-Position entschieden. Jetzt fest geseedeter Tie-Break via `np.lexsort`.
 - Das **Two-Mode-Netzwerk** wurde nur aus Mehrautoren-Artikeln gebaut und war
   damit ein gefilterter Teilgraph. Jetzt ueber alle Artikel mit Autorenschaft.
+- Der **Agentur-Filter** verglich nur exakte Zeichenketten. Zusammengesetzte
+  Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` (214 Artikel,
+  Mitglied der groessten Clique) gelangten als vermeintliche Personen in den
+  Graphen. Token-basierte Filterung entfernt 133 institutionelle Knoten
+  (947 auf 814 Autor:innen).
+- Der **QAP-Test** korrelierte zunaechst zwei Matrizen, die beide fuer nicht
+  benachbarte Paare null sind, und mass damit teilweise blosse
+  Kanten-Kopraesenz. Mit einer ueber alle Dyaden definierten JSD-Matrix kehrt
+  sich das Vorzeichen von +0.148 auf -0.140 um, was der Homophilie-Hypothese
+  entspricht.
 
 ### Auswirkungen auf die Resultate
-
-Die Zahlen haben sich durch die Korrekturen spuerbar verschoben:
 
 - 41.4% der Kommentarwerte (48'970 Artikel) waren zuvor faelschlich 0.
 - 1'573 Autorennamen wurden durch `capitalize()` beschaedigt
   („Patrick McEvily“ zu „Patrick Mcevily“). Autorennamen sind Knoten-IDs.
-- PR-AUC der Link-Prediction im finalen Fenster: 0.1865 statt zuvor 0.1230,
-  Precision@20 0.55 statt eines Tie-Artefakts.
-- Assortativitaet r = 0.3672 (zuvor 0.3698).
+- 133 institutionelle Knoten (Agenturen, Desks) sind aus dem Graphen entfernt:
+  814 statt 947 Autor:innen, 574 statt 639 Knoten im Kollaborationsnetzwerk.
+- PR-AUC der Link-Prediction im finalen Fenster: 0.1872 statt zuvor 0.1230.
+- Assortativitaet r = 0.3630 (zuvor 0.3698).
 
 ### Verbleibende Einschraenkung
 
@@ -111,4 +141,8 @@ Das Skript ist zum Ausfuehren gedacht, nicht zum Importieren.
 ## Hinweis zur Nutzung von KI-Werkzeugen
 
 Teile des Analysecodes wurden mit KI-Assistenz erstellt. Die oben genannten
-offenen Punkte stammen aus einem anschliessenden Code-Review.
+Befunde stammen aus einem anschliessenden Code-Review.
+
+**Die Projektbeschreibung verlangt neben der Deklaration ausdruecklich die
+Angabe der Prompts.** Diese Dokumentation fehlt noch und ist in `TODO.md` als
+blockierender Punkt erfasst.
