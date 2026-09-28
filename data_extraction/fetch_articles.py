@@ -12,11 +12,10 @@ from threading import Event
 from data_extraction.candidates import DEFAULT_MODEL, extract_candidates, load_model
 from data_extraction.db import Database
 from data_extraction.page_parser import LayoutError, parse_page
-from data_extraction.sources import FixtureSource, HttpSource, Source
+from data_extraction.sources import HttpSource, Source
 
 DEFAULT_WORKERS = 4
 DEFAULT_BATCH_SIZE = 25
-DEFAULT_FIXTURE_COUNT = 650
 TERMINAL_HTTP_CODES = {404, 410}
 
 
@@ -118,18 +117,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="F01: Artikel zu Kandidaten verdichten"
     )
-    parser.add_argument("--source", required=True, choices=("fixtures", "http"))
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument(
-        "--input", type=Path, help="URL-Datum-CSV; nur für eine neue HTTP-Datenbank"
-    )
-    parser.add_argument(
-        "--fixtures-dir",
-        type=Path,
-        default=Path(__file__).resolve().parents[1] / "tests/fixtures",
-    )
-    parser.add_argument(
-        "--fixture-count", type=positive_int, default=DEFAULT_FIXTURE_COUNT
+        "--input", type=Path, help="URL-Datum-CSV; nur für eine neue Datenbank"
     )
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--batch-size", type=positive_int, default=DEFAULT_BATCH_SIZE)
@@ -146,38 +136,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Plan ohne Abruf, Modellladen oder Schreibzugriff",
     )
     args = parser.parse_args(argv)
-    if args.source == "fixtures" and args.input:
-        parser.error("--input ist nur für --source http vorgesehen")
     if args.retry_failed and args.retry_url:
         parser.error("--retry-failed und --retry-url sind Alternativen")
-    if args.source == "http" and not args.db.exists() and not args.input:
-        parser.error("Eine neue HTTP-Datenbank benötigt --input")
+    if not args.db.exists() and not args.input:
+        parser.error("Eine neue Datenbank benötigt --input")
     if args.dry_run:
         print(
-            f"Plan: source={args.source} db={args.db} model={args.model} "
-            f"batch_size={args.batch_size} workers={args.workers} "
-            f"fixture_count={args.fixture_count if args.source == 'fixtures' else 'entfällt'} "
-            f"input={args.input} retry_failed={args.retry_failed} retry_url={args.retry_url}"
+            f"Plan: db={args.db} model={args.model} batch_size={args.batch_size} "
+            f"workers={args.workers} input={args.input} "
+            f"retry_failed={args.retry_failed} retry_url={args.retry_url}"
         )
         return 0
-    source = (
-        FixtureSource(args.fixtures_dir) if args.source == "fixtures" else HttpSource()
-    )
+    source = HttpSource()
     stop = Event()
     with stop_on_signal(stop):
         nlp = load_model(args.model)
         with Database(args.db) as db:
-            fixture_count = db.connection.execute(
-                "SELECT count(*) FROM articles WHERE url LIKE 'fixture://%'"
-            ).fetchone()[0]
-            total = sum(db.counts().values())
-            if (args.source == "fixtures" and fixture_count != total) or (
-                args.source == "http" and fixture_count
-            ):
-                parser.error("Quelle und vorhandene Datenbank passen nicht zusammen")
-            if args.source == "fixtures":
-                db.seed(source.records(args.fixture_count))
-            elif args.input:
+            if args.input:
                 db.seed(csv_records(args.input))
             if args.retry_failed or args.retry_url:
                 db.reset_failed(args.retry_url)

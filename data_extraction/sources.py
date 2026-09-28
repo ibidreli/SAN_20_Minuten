@@ -1,11 +1,7 @@
-"""Austauschbare Quellen; nur HttpSource berührt das Netzwerk."""
+"""Abrufschicht; HttpSource ist die einzige Stelle mit Netzwerkzugriff."""
 
-import json
 import time
-from collections.abc import Iterator
-from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlsplit
 
 import requests
 
@@ -39,28 +35,3 @@ class HttpSource:
             if attempt + 1 < HTTP_MAX_ATTEMPTS:
                 time.sleep(BACKOFF_SECONDS * 2**attempt)
         return status, None
-
-
-class FixtureSource:
-    def __init__(self, directory: Path):
-        self.directory = Path(directory)
-        self.metadata = json.loads(
-            (self.directory / "fixtures.json").read_text(encoding="utf-8")
-        )
-
-    def records(self, count: int) -> Iterator[tuple[str, str | None]]:
-        names = list(self.metadata)
-        for index in range(count):
-            name = names[index % len(names)]
-            year = self.metadata[name].get("jahr")
-            yield f"fixture://{name}/{index}", f"{year}-01-01" if year else None
-
-    def fetch(self, url: str) -> tuple[int, str | None]:
-        parts = urlsplit(url)
-        name = parts.netloc
-        if parts.scheme != "fixture" or name not in self.metadata:
-            raise ValueError("Unbekannte Fixture-URL")
-        status = self.metadata[name].get("http", 200)
-        if status != 200:
-            return status, None
-        return status, (self.directory / name).read_text(encoding="utf-8")

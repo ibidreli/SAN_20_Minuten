@@ -75,8 +75,9 @@ Netzwerkgroesse, die drei Analysen mit These, Filterung, Methode und Erwartung.
 Noun-Chunks, austauschbaren Quellen und sauberem SIGINT-Abbruch implementiert.
 36 Offline-Tests bestanden. Zwei Läufe mit je 650 Pseudo-Artikeln liefern
 identische 600 erfolgreiche Artikel, 50 entfernte Seiten und 71'150 Kandidaten.
-Keine Abrufe von Artikelseiten. Details und Entscheidungen:
-[F01-Fixture- und Pilotbericht](docs/features/F01-pilotbericht.md).
+Keine Abrufe von Artikelseiten. Die Testsuite, die Fixtures und die
+Spezifikationsdokumente wurden am 28.09.2026 auf Teamwunsch entfernt; der
+Nachweis steckt im Commit `5acedea`, der sie noch enthaelt.
 Die Sichtprüfung betrifft zwölf unterschiedliche Artikelseiten; die verlangte
 grössere Teamstichprobe und die Pilotabnahme bleiben offen.
 
@@ -98,9 +99,10 @@ und eine Sichtpruefung von 20 Artikeln kein Boilerplate im `body` zeigt.
 ### M2b · Pilotlauf und Festzurren der Kandidatenregeln ⬜
 **Woche 3 · Voraussetzung fuer M3, nicht optional**
 
-Ein lokaler Vergleich von `sm`, `md` und `lg` auf denselben zwölf Fixtures liegt
-im F01-Bericht vor. Er ersetzt weder den geschichteten 2'000-Artikel-Pilot noch
-die Modellentscheidung des Teams. Der Default bleibt vorläufig `de_core_news_lg`.
+Ein lokaler Vergleich von `sm`, `md` und `lg` wurde auf zwölf Artikelseiten
+durchgefuehrt (siehe Commit `5acedea`). Er ersetzt weder den geschichteten
+2'000-Artikel-Pilot noch die Modellentscheidung des Teams. Der Default bleibt
+vorläufig `de_core_news_lg`.
 
 Weil der Volltext nicht aufbewahrt wird, ist der Vollcrawl praktisch nicht
 wiederholbar. Vorher auf einer geschichteten Stichprobe von rund 2'000 Artikeln
@@ -355,11 +357,17 @@ Diese Punkte sind noch offen. Antworten bitte direkt hier eintragen.
 ## 8. Blocker
 
 🟡 **F01 vor Vollcrawl abnehmen.** Team-Pilot, endgültige Modellwahl und
-Entscheidung über Interaktionsmetriken sind offen. Die geerbte `clean_text`-Regel
-trennt auch echte Eigennamen (`McLaren` zu `Mc Laren`, `AfD` zu `Af D`). Die
-Fixture-Datenbank ergibt linear hochgerechnet rund 9,05 GB inklusive Indizes,
-keinen Nachweis für die frühere Schätzung von 200 bis 300 MB. Beide Befunde
-sind vor einem Vollcrawl im Pilot zu bewerten; es wurde keiner gestartet.
+Team-Pilot und endgültige Modellwahl sind offen.
+
+Erledigt: Die `clean_text`-Regel trennt Eigennamen nicht mehr (`McLaren` und
+`AfD` bleiben erhalten), behoben am 27.09.2026. Die Interaktionsmetriken
+`likes`, `shares` und `kommentare` bleiben leer, weil die zugehoerigen Buttons
+in den Artikelseiten nicht mehr existieren; vom Team als unerheblich eingestuft,
+da fuer das Keyphrase-Netzwerk nicht benoetigt.
+
+Offen und wichtig: Die Kandidatenschicht ergibt linear hochgerechnet rund
+**9,05 GB inklusive Indizes**, nicht die in Abschnitt 4a geschaetzten 200 bis
+300 MB. Das ist vor dem Vollcrawl zu bewerten.
 
 🔴 **Termin-Widerspruch.** `docs/SAN-Projektbeschreibung.pdf` nennt als
 Abgabetermin Freitag, 31.05.2026. Dieses Datum liegt in der Vergangenheit und
@@ -389,10 +397,8 @@ nachziehen**, um zu pruefen, ob der Space Zusaetzliches enthaelt.
 | `data_extraction/get_data.py` | Sitemap-Crawler mit Import-Guard und korrigiertem Ausgabepfad | ✅ korrigiert, nicht ausgeführt |
 | `data_extraction/handle_data.py` | kompatibler CLI-Einstieg zur neuen Pipeline | ✅ ersetzt |
 | `data_extraction/fetch_articles.py` | F01-Orchestrierung, Parser, Kandidaten, Quellen und SQLite in separaten Modulen | ✅ offline verifiziert |
-| `data_extraction/README.md` | Installation und sichere Fixture-Kommandos | ✅ dokumentiert |
-| `scripts/verify_f01.py` | Offline-E2E, echtes SIGINT, Inhalts- und Schemaabfragen | ✅ ausgeführt |
-| `scripts/benchmark_f01.py` | Modellvergleich auf lokalen Fixtures | ✅ ausgeführt |
-| `docs/features/F01-pilotbericht.md` | Fixture-Nachweise und offene Pilotabnahme | 🟡 Teamabnahme offen |
+| `data_extraction/README.md` | Installation und Bedienung der Pipeline | ✅ dokumentiert |
+| Tests, Fixtures, Spezifikation, Pilotbericht | am 28.09.2026 entfernt | ℹ️ in Commit `5acedea` erhalten |
 | `data/kandidaten.parquet` | Kandidatenschicht, Ergebnis von M3 | ⬜ noch nicht erzeugt |
 | `src/00_beispiel_netzwerk.py` | Illustration Two-Mode zu One-Mode aus fuenf echten Artikeln | ✅ erzeugt 2026-09-17 |
 | `out_plots/beispiel_5artikel_10keywords.png` | dazugehoerige Abbildung | 🟡 Panel A und C brauchen noch ein Layout-Fix |

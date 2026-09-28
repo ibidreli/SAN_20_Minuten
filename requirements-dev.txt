@@ -1,5 +1,0 @@
--r requirements-f01.txt
-pytest==9.1.1
-pytest-cov==7.1.0
-pytest-socket==0.8.1
-ruff==0.16.9
