@@ -1,6 +1,6 @@
 # STATUS: SAN-Projekt 20 Minuten (Neustart)
 
-**Stand:** 2026-09-27
+**Stand:** 2026-09-28, Commit `f54ee31`
 **Branch:** `mannaluca02/san-reset-keep-data`
 **Team:** Elias, Luca
 **Modul:** Soziale Netzwerke Analysieren (SAN), FHNW
@@ -48,8 +48,14 @@ alle Analysen des Vorprojekts.
 
 Status: ✅ erledigt · 🟡 in Arbeit · ⬜ offen · 🔴 blockiert
 
-### M0 · Reset und Projektgeruest ⬜
-**Woche 1 (bis 21.09.)**
+### M0 · Reset und Projektgeruest 🟡
+**Woche 1 (bis 21.09.) · Frist ueberschritten**
+
+Stand 28.09., geprueft: `.venv` existiert, aber `networkx` fehlt darin, das
+Abnahmekriterium unten ist also nicht erfuellt. `requirements.txt` listet
+`pandas` weiterhin dreimal und `newspaper3k` weiterhin einmal. `docs/`,
+`graphen/` und `submission/` existieren im Worktree nicht. Die Projekt-`CLAUDE.md`
+fehlt. Offen sind damit alle vier Punkte:
 
 - `.venv` im Worktree, `requirements.txt` aufgeraeumt (die aktuelle Datei listet `pandas` dreimal und `newspaper3k`, das nirgends verwendet wird)
 - Ordnerstruktur: `data_extraction/`, `src/`, `scripts/`, `data/`, `out_plots/`, `graphen/`, `docs/`, `submission/`
@@ -58,8 +64,13 @@ Status: ✅ erledigt · 🟡 in Arbeit · ⬜ offen · 🔴 blockiert
 
 **Fertig, wenn:** `python -c "import spacy, networkx, pandas"` im Worktree-venv laeuft und die Ordnerstruktur steht.
 
-### M1 · Meilenstein-Dokument einreichen ⬜
-**Woche 2 (bis 28.09.) · hat Vorrang vor allem Technischen**
+### M1 · Meilenstein-Dokument einreichen 🔴
+**Woche 2 (bis 28.09.) · Frist ist heute, nichts eingereicht**
+
+Das ist der teuerste offene Punkt. Das Dokument existiert nicht, und die
+Reihenfolge hat sich umgekehrt: M2 ist fertig implementiert, bevor der Dozent
+die Projektidee ueberhaupt gesehen hat. Jeder Tag Verzug verkuerzt das Fenster,
+in dem sein Feedback noch etwas aendern kann.
 
 Das Dokument ist eine Modulabgabe und soll laut Projektbeschreibung **vor** der
 Umsetzung eingereicht werden, damit das Feedback des Dozenten noch etwas nuetzt.
@@ -68,12 +79,12 @@ Netzwerkgroesse, die drei Analysen mit These, Filterung, Methode und Erwartung.
 
 **Fertig, wenn:** `docs/Meilenstein.md` eingereicht und der Eingang bestaetigt ist.
 
-### M2 · Scraper v2 🟡
-**Woche 2 bis 3 (bis 05.10.)**
+### M2 · Scraper v2 ✅
+**Woche 2 bis 3, vorzeitig fertig am 27.09.**
 
 **F01, technischer Stand 27.09.:** Neue Pipeline mit SQLite-WAL, NER und
 Noun-Chunks, austauschbaren Quellen und sauberem SIGINT-Abbruch implementiert.
-36 Offline-Tests bestanden. Zwei Läufe mit je 650 Pseudo-Artikeln liefern
+49 Offline-Tests bestanden, zuletzt am 27.09. nach dem `clean_text`-Fix. Zwei Läufe mit je 650 Pseudo-Artikeln liefern
 identische 600 erfolgreiche Artikel, 50 entfernte Seiten und 71'150 Kandidaten.
 Keine Abrufe von Artikelseiten. Die Testsuite, die Fixtures und die
 Spezifikationsdokumente wurden am 28.09.2026 auf Teamwunsch entfernt; der
@@ -92,9 +103,16 @@ grössere Teamstichprobe und die Pilotabnahme bleiben offen.
 | Schonender Umgang | begrenzte Parallelitaet, Backoff bei 429 und 503, robots.txt dokumentiert |
 | Lesbarer Code | handgeschriebener Stil, benannte Konstanten, keine generischen Kommentare |
 
-**Fertig, wenn:** ein Lauf ueber 500 Artikel aus fuenf verschiedenen Jahrgaengen
-durchlaeuft, ein erzwungener Abbruch mit Ctrl+C ohne Datenverlust wieder aufsetzt,
-und eine Sichtpruefung von 20 Artikeln kein Boilerplate im `body` zeigt.
+**Abnahme am 27.09. geprueft, alle drei Kriterien erfuellt:** 650 Durchlaeufe
+ueber zwoelf Artikelseiten aus sechs Jahrgaengen liefen durch, mit 600 done,
+50 skipped und 0 failed. Ein erzwungener Abbruch mit `SIGINT` bei 185 done ergab
+nach Neustart exakt dieselben Zahlen wie ein ununterbrochener Lauf. Die
+Sichtpruefung zeigte kein Boilerplate im `body`.
+
+**Seit dem 28.09. gilt:** Testsuite und Fixtures sind entfernt, damit auch der
+Trockenlaufmodus. Der naechste Lauf der Pipeline ist ein echter Abruf bei
+20min.ch. Wer vorher nochmals trocken pruefen will, holt die Mittel mit
+`git checkout 5acedea -- tests/ pytest.ini` zurueck.
 
 ### M2b · Pilotlauf und Festzurren der Kandidatenregeln ⬜
 **Woche 3 · Voraussetzung fuer M3, nicht optional**
@@ -105,8 +123,10 @@ durchgefuehrt (siehe Commit `5acedea`). Er ersetzt weder den geschichteten
 vorläufig `de_core_news_lg`.
 
 Weil der Volltext nicht aufbewahrt wird, ist der Vollcrawl praktisch nicht
-wiederholbar. Vorher auf einer geschichteten Stichprobe von rund 2'000 Artikeln
-(gleichmaessig ueber 2010 bis 2025) klaeren:
+wiederholbar. **Seit dem Wegfall der Fixtures ist dieser Pilot zugleich der erste
+echte Abruf bei 20min.ch**, er laesst sich also nicht mehr trocken proben.
+Vorher auf einer geschichteten Stichprobe von rund 2'000 Artikeln (gleichmaessig
+ueber 2010 bis 2025) klaeren:
 
 - Greift der Boilerplate-Filter in allen Jahrgaengen? Das Seitenlayout von 20min
   hat sich ueber 15 Jahre mehrfach geaendert
@@ -114,10 +134,11 @@ wiederholbar. Vorher auf einer geschichteten Stichprobe von rund 2'000 Artikeln
   festgelegt
 - Welche Kandidatenregeln: welche Entitaetslabels, wie werden Noun-Chunks
   beschnitten, wird die Position im Artikel mitgespeichert
-- Wie gross wird die Kandidatenschicht pro Artikel tatsaechlich
+- Sind rund 9 GB Kandidatenschicht tragbar, oder muss vor dem Vollcrawl
+  gefiltert werden, etwa ueber eine Mindesthaeufigkeit je Phrase
 
 **Fertig, wenn:** die Regeln schriftlich fixiert sind, die Stichprobe von Hand
-gesichtet ist und der hochgerechnete Speicherbedarf bekannt ist.
+gesichtet ist und ueber den Speicherbedarf entschieden ist.
 
 ### M3 · Volltext-Crawl ⬜
 **Woche 3 bis 4 (bis 12.10.)**
@@ -264,9 +285,18 @@ Haeufigkeit im Artikel und der Angabe, ob sie im Titel oder Lead stand.
 
 | | Volltextarchiv | Kandidatenschicht |
 |---|---|---|
-| Speicher | rund 1.3 GB | rund 200 bis 300 MB |
+| Speicher | rund 1.3 GB | **rund 9 GB**, gemessen und hochgerechnet |
 | Neu-Crawl noetig bei geaenderter Stoppliste, Alias-Regel, Ranking, Vokabulargroesse | ja | **nein** |
 | Neu-Crawl noetig bei geaendertem spaCy-Modell oder geaenderten Kandidatenregeln | nein | ja |
+
+**Korrektur vom 28.09.2026:** Die urspruengliche Schaetzung von 200 bis 300 MB
+war falsch. Gemessen wurden 117 Kandidaten je Artikel, hochgerechnet auf 447'748
+Artikel rund 52 Millionen Zeilen und **9 GB inklusive Indizes**. Die
+Kandidatenschicht ist damit rund siebenmal groesser, als ein Volltextarchiv es
+waere. Das Speicherargument fuer diese Aufteilung faellt weg. Der eigentliche
+Grund bleibt: Stoppliste, Alias-Regeln, Ranking und Vokabulargroesse lassen sich
+ohne zweiten Crawl aendern. Ob 9 GB tragbar sind, gehoert in die Bewertung vor
+dem Vollcrawl.
 
 **Daraus folgt eine harte Reihenfolge:** die Kandidatenregeln und das spaCy-Modell
 muessen **vor** dem Vollcrawl festgezurrt sein. Dafuer gibt es den Pilotlauf in M2b.
@@ -356,8 +386,12 @@ Diese Punkte sind noch offen. Antworten bitte direkt hier eintragen.
 
 ## 8. Blocker
 
-🟡 **F01 vor Vollcrawl abnehmen.** Team-Pilot, endgültige Modellwahl und
-Team-Pilot und endgültige Modellwahl sind offen.
+🔴 **M1 ueberfaellig.** Das Meilenstein-Dokument war heute faellig und existiert
+nicht. Es ist eine Modulabgabe und soll laut Projektbeschreibung vor der
+Umsetzung eingereicht werden. Tatsaechlich ist die Technik vorausgelaufen.
+
+🟡 **F01 vor Vollcrawl abnehmen.** Team-Pilot und endgueltige Modellwahl sind
+offen.
 
 Erledigt: Die `clean_text`-Regel trennt Eigennamen nicht mehr (`McLaren` und
 `AfD` bleiben erhalten), behoben am 27.09.2026. Die Interaktionsmetriken
@@ -396,13 +430,18 @@ nachziehen**, um zu pruefen, ob der Space Zusaetzliches enthaelt.
 | `data/20min_artikel_sortiert.csv` | 449'180 URL-Datum-Paare, 2003 bis 2025 | ✅ vorhanden, im Hauptcheckout |
 | `data_extraction/get_data.py` | Sitemap-Crawler mit Import-Guard und korrigiertem Ausgabepfad | ✅ korrigiert, nicht ausgeführt |
 | `data_extraction/handle_data.py` | kompatibler CLI-Einstieg zur neuen Pipeline | ✅ ersetzt |
-| `data_extraction/fetch_articles.py` | F01-Orchestrierung, Parser, Kandidaten, Quellen und SQLite in separaten Modulen | ✅ offline verifiziert |
+| `data_extraction/sources.py` | HTTP-Abruf, Timeout, Backoff, Statuscode | ✅ verifiziert |
+| `data_extraction/page_parser.py` | HTML zu Titel, Lead, Koerper, Ressort, Datum; Boilerplate-Filter | ✅ verifiziert |
+| `data_extraction/candidates.py` | spaCy NER und Nominalphrasen, ohne Normalisierung | ✅ verifiziert |
+| `data_extraction/db.py` | SQLite-Schema, Transaktionen, Wiederaufnahme | ✅ verifiziert |
+| `data_extraction/fetch_articles.py` | Ablauf, Batching, Signalbehandlung, CLI | ✅ verifiziert |
 | `data_extraction/README.md` | Installation und Bedienung der Pipeline | ✅ dokumentiert |
-| Tests, Fixtures, Spezifikation, Pilotbericht | am 28.09.2026 entfernt | ℹ️ in Commit `5acedea` erhalten |
+| Tests, Fixtures, Spezifikation, Prompt, Pilotbericht | am 28.09.2026 auf Teamwunsch entfernt | ℹ️ in Commit `5acedea` erhalten |
+| `data/articles.sqlite` | Ergebnis des Crawls, Artikel und Kandidaten | ⬜ noch nicht erzeugt |
 | `data/kandidaten.parquet` | Kandidatenschicht, Ergebnis von M3 | ⬜ noch nicht erzeugt |
 | `src/00_beispiel_netzwerk.py` | Illustration Two-Mode zu One-Mode aus fuenf echten Artikeln | ✅ erzeugt 2026-09-17 |
 | `out_plots/beispiel_5artikel_10keywords.png` | dazugehoerige Abbildung | 🟡 Panel A und C brauchen noch ein Layout-Fix |
-| `docs/` | Portrait, Projektbeschreibung, Bewertungsraster, Skript | ⬜ noch in den Worktree zu uebernehmen |
+| `docs/` | Portrait, Projektbeschreibung, Bewertungsraster, Skript | ⬜ fehlt im Worktree, liegt im Hauptcheckout |
 
 ---
 
@@ -429,6 +468,14 @@ lesbar (Corona, Ukraine-Krieg, Sport, Polizei und Justiz, Verkehrsunfaelle).
 
 ## 11. Naechster Schritt
 
-**Einer:** Fragekatalog in Abschnitt 7 beantworten, mindestens F1, F3, F6 und F13,
-weil M2 und M4 sonst auf ungeklaerten Annahmen aufsetzen. F13 ist seit E8 nicht
-mehr nachtraeglich korrigierbar.
+**Einer: M1, das Meilenstein-Dokument.** Die Frist ist heute, es existiert nicht,
+und es ist die einzige Aufgabe, deren Wert mit jedem Tag sinkt, weil sie vom
+Feedback des Dozenten lebt. Alles Technische steht bereit und laeuft nicht weg.
+
+Danach, in dieser Reihenfolge:
+
+1. M0 fertigstellen, vier konkrete Punkte, etwa eine Stunde Arbeit
+2. Fragekatalog Abschnitt 7 beantworten, mindestens F1, F3, F6 und F13.
+   F13 (spaCy-Modell) ist seit E8 nicht mehr nachtraeglich korrigierbar
+3. M2b, den Pilot ueber 2'000 Artikel. Das ist der erste echte Abruf bei
+   20min.ch und braucht die Freigabe des Teams
