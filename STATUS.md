@@ -1,6 +1,6 @@
 # STATUS: SAN-Projekt 20 Minuten (Neustart)
 
-**Stand:** 2026-09-17
+**Stand:** 2026-09-27
 **Branch:** `mannaluca02/san-reset-keep-data`
 **Team:** Elias, Luca
 **Modul:** Soziale Netzwerke Analysieren (SAN), FHNW
@@ -30,7 +30,7 @@ Verbleibend ab heute: **7 Wochen bis zur Pruefung, 15 Wochen bis zur Abgabe.**
 |---|---|---|
 | E1 | **Netzwerkmodell B**: One-Mode-Keyphrase-Netzwerk, projiziert aus dem bipartiten Artikel-Keyphrase-Graphen. Knoten sind ausschliesslich Keyphrasen. | Team-Entscheid. Artikel verschwinden in der Projektion, bleiben aber als Kantengewicht und im Two-Mode-Zwischenschritt sichtbar (LE3). |
 | E2 | **Zeitraum ab 2010**, 447'748 Artikel | Team-Entscheid. 2003 bis 2009 sind mit 1'429 Artikeln zu duenn besetzt und wuerden die Jahresvergleiche verzerren. |
-| E3 | **Volltext neu crawlen** statt Titel und Lead wiederzuverwenden | Der Volltext ist in den Altdaten nicht persistiert. Stichprobe 2026-09-17: 8 von 8 Artikeln aus 2010, 2015, 2020 und 2024 abrufbar, rund 0.4s pro Artikel. Hochrechnung bei 25 Workern: 2 bis 4 Stunden. |
+| E3 | **Volltext neu crawlen** statt Titel und Lead wiederzuverwenden | Der Volltext ist in den Altdaten nicht persistiert. Stichprobe 2026-09-17: 8 von 8 Artikeln aus 2010, 2015, 2020 und 2024 abrufbar, rund 0.4s pro Artikel. **Korrigiert am 2026-09-27:** der Vollcrawl dauert rund **9.8 Stunden**, nicht 2 bis 4. Der Engpass ist nicht HTTP, sondern spaCy, das seriell laeuft, waehrend nur der Abruf parallelisiert ist. Gemessen an 650 Fixture-Durchlaeufen mit 14 Artikeln pro Sekunde. Vom Team als unproblematisch eingestuft. |
 | E4 | **Scraper wird neu geschrieben**, mit SQLite als Fortschrittsspeicher | Der alte Scraper las zur Wiederaufnahme die komplette Ausgabedatei ein. Das traegt bei 448k Artikeln nicht mehr. |
 | E8 | **Der Volltext wird nicht persistiert.** Er lebt nur im Arbeitsspeicher, bis die Kandidatenextraktion darauf gelaufen ist, danach wird er verworfen | Team-Entscheid. Gespeichert wird stattdessen die **Kandidatenschicht** (siehe Abschnitt 4a), die alle spaeteren Iterationen ohne Neu-Crawl traegt |
 | E5 | **Extraktion per spaCy NER + Noun-Chunks + Lemmatisierung + Alias-Mapping** | Deterministisch, reproduzierbar, im Notebook erklaerbar, keine GPU noetig. „Roger Federer“ bleibt eine Einheit, „kantone“ und „kanton“ werden zusammengefuehrt. |
@@ -68,8 +68,17 @@ Netzwerkgroesse, die drei Analysen mit These, Filterung, Methode und Erwartung.
 
 **Fertig, wenn:** `docs/Meilenstein.md` eingereicht und der Eingang bestaetigt ist.
 
-### M2 · Scraper v2 ⬜
+### M2 · Scraper v2 🟡
 **Woche 2 bis 3 (bis 05.10.)**
+
+**F01, technischer Stand 27.09.:** Neue Pipeline mit SQLite-WAL, NER und
+Noun-Chunks, austauschbaren Quellen und sauberem SIGINT-Abbruch implementiert.
+36 Offline-Tests bestanden. Zwei Läufe mit je 650 Pseudo-Artikeln liefern
+identische 600 erfolgreiche Artikel, 50 entfernte Seiten und 71'150 Kandidaten.
+Keine Abrufe von Artikelseiten. Details und Entscheidungen:
+[F01-Fixture- und Pilotbericht](docs/features/F01-pilotbericht.md).
+Die Sichtprüfung betrifft zwölf unterschiedliche Artikelseiten; die verlangte
+grössere Teamstichprobe und die Pilotabnahme bleiben offen.
 
 `data_extraction/fetch_articles.py`, neu geschrieben:
 
@@ -88,6 +97,10 @@ und eine Sichtpruefung von 20 Artikeln kein Boilerplate im `body` zeigt.
 
 ### M2b · Pilotlauf und Festzurren der Kandidatenregeln ⬜
 **Woche 3 · Voraussetzung fuer M3, nicht optional**
+
+Ein lokaler Vergleich von `sm`, `md` und `lg` auf denselben zwölf Fixtures liegt
+im F01-Bericht vor. Er ersetzt weder den geschichteten 2'000-Artikel-Pilot noch
+die Modellentscheidung des Teams. Der Default bleibt vorläufig `de_core_news_lg`.
 
 Weil der Volltext nicht aufbewahrt wird, ist der Vollcrawl praktisch nicht
 wiederholbar. Vorher auf einer geschichteten Stichprobe von rund 2'000 Artikeln
@@ -341,6 +354,13 @@ Diese Punkte sind noch offen. Antworten bitte direkt hier eintragen.
 
 ## 8. Blocker
 
+🟡 **F01 vor Vollcrawl abnehmen.** Team-Pilot, endgültige Modellwahl und
+Entscheidung über Interaktionsmetriken sind offen. Die geerbte `clean_text`-Regel
+trennt auch echte Eigennamen (`McLaren` zu `Mc Laren`, `AfD` zu `Af D`). Die
+Fixture-Datenbank ergibt linear hochgerechnet rund 9,05 GB inklusive Indizes,
+keinen Nachweis für die frühere Schätzung von 200 bis 300 MB. Beide Befunde
+sind vor einem Vollcrawl im Pilot zu bewerten; es wurde keiner gestartet.
+
 🔴 **Termin-Widerspruch.** `docs/SAN-Projektbeschreibung.pdf` nennt als
 Abgabetermin Freitag, 31.05.2026. Dieses Datum liegt in der Vergangenheit und
 stammt aus dem vorherigen Semester. `docs/SAN-portrait.md` nennt Sonntag,
@@ -366,8 +386,13 @@ nachziehen**, um zu pruefen, ob der Space Zusaetzliches enthaelt.
 | Pfad | Inhalt | Stand |
 |---|---|---|
 | `data/20min_artikel_sortiert.csv` | 449'180 URL-Datum-Paare, 2003 bis 2025 | ✅ vorhanden, im Hauptcheckout |
-| `data_extraction/get_data.py` | Sitemap-Crawler, Vorlage fuer v2 | ✅ vorhanden |
-| `data_extraction/handle_data.py` | alte Extraktion | ⬜ wird ersetzt (M2, M4) |
+| `data_extraction/get_data.py` | Sitemap-Crawler mit Import-Guard und korrigiertem Ausgabepfad | ✅ korrigiert, nicht ausgeführt |
+| `data_extraction/handle_data.py` | kompatibler CLI-Einstieg zur neuen Pipeline | ✅ ersetzt |
+| `data_extraction/fetch_articles.py` | F01-Orchestrierung, Parser, Kandidaten, Quellen und SQLite in separaten Modulen | ✅ offline verifiziert |
+| `data_extraction/README.md` | Installation und sichere Fixture-Kommandos | ✅ dokumentiert |
+| `scripts/verify_f01.py` | Offline-E2E, echtes SIGINT, Inhalts- und Schemaabfragen | ✅ ausgeführt |
+| `scripts/benchmark_f01.py` | Modellvergleich auf lokalen Fixtures | ✅ ausgeführt |
+| `docs/features/F01-pilotbericht.md` | Fixture-Nachweise und offene Pilotabnahme | 🟡 Teamabnahme offen |
 | `data/kandidaten.parquet` | Kandidatenschicht, Ergebnis von M3 | ⬜ noch nicht erzeugt |
 | `src/00_beispiel_netzwerk.py` | Illustration Two-Mode zu One-Mode aus fuenf echten Artikeln | ✅ erzeugt 2026-09-17 |
 | `out_plots/beispiel_5artikel_10keywords.png` | dazugehoerige Abbildung | 🟡 Panel A und C brauchen noch ein Layout-Fix |
@@ -388,6 +413,7 @@ Alle Zahlen am 2026-09-17 auf den Altdaten gemessen, nicht geschaetzt:
 | Volltext heute abrufbar | 8 von 8 Stichproben, rund 0.4s pro Artikel |
 | Eindeutige Begriffe (alte Extraktion, ab 2020) | 118'849, davon 1'784 in mindestens 100 Artikeln |
 | Rohe Kookkurrenz, Top-1200, ab 2020 | 246'541 Kanten, Dichte 0.343 |
+| Durchsatz der Pipeline, gemessen | 14 Artikel/s, hochgerechnet 9.8 Stunden fuer 447'748 Artikel |
 | Nach Salton und Mutual-10-NN | 3'282 Kanten, Dichte 0.0046, Giant Component 94.7%, Louvain Q = 0.858 |
 
 Die letzte Zeile ist der Beleg, dass das Modell traegt: 24 Communities, thematisch
