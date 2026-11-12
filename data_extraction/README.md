@@ -99,6 +99,12 @@ Daten. Sie bestimmen, welche Aussagen die Analyse machen kann.
 - **Ressorts**: Die Einteilung hat sich geändert ("Regionen", "Lifestyle" und
   "Community" erst ab etwa 2017). Für Zeitvergleiche die erste Stufe von
   `ressort_pfad` verwenden.
+- **`views`** ist nicht als Seitenaufrufe interpretierbar: Im Test lag der
+  Median bei 25, bei 78 % der Artikel unter den Likes. Das CMS liefert das
+  Feld als `community.views`; seine Bedeutung ist unklar. Nicht verwenden,
+  ohne es vorher zu klären.
+- **Liveticker** (`format = ticker`) sammeln Reaktionen über viele Einträge
+  (im Test bis 265'000 Likes) und verzerren Mittelwerte; getrennt auswerten.
 - **Zeitangaben** sind UTC und für Auswertungen nach Uhrzeit nach
   `Europe/Zurich` umzurechnen; ältere Artikel sind nur minutengenau.
 - Die alte Datei `data/20min_metadaten_keywords_clean.csv` enthält bei etwa
