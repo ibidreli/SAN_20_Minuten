@@ -21,10 +21,15 @@ CREATE TABLE IF NOT EXISTS articles (
     titel TEXT,
     lead TEXT,
     ressort TEXT,
+    ressort_pfad TEXT,
     likes INTEGER,
     shares INTEGER,
     kommentare INTEGER,
-    wortanzahl INTEGER
+    quelle_kuerzel TEXT,
+    wortanzahl INTEGER,
+    views INTEGER,
+    aktualisiert TEXT,
+    format TEXT
 );
 CREATE TABLE IF NOT EXISTS candidates (
     url TEXT NOT NULL REFERENCES articles(url),
@@ -33,6 +38,8 @@ CREATE TABLE IF NOT EXISTS candidates (
     count INTEGER NOT NULL CHECK (count > 0),
     in_titel INTEGER NOT NULL CHECK (in_titel IN (0, 1)),
     in_lead INTEGER NOT NULL CHECK (in_lead IN (0, 1)),
+    lemma TEXT,
+    kopf TEXT,
     PRIMARY KEY (url, phrase, label)
 );
 CREATE TABLE IF NOT EXISTS article_authors (
@@ -41,11 +48,31 @@ CREATE TABLE IF NOT EXISTS article_authors (
     name TEXT NOT NULL,
     kuerzel TEXT,
     autor_id INTEGER,
+    art TEXT,
+    PRIMARY KEY (url, position)
+);
+CREATE TABLE IF NOT EXISTS article_kuerzel (
+    url TEXT NOT NULL REFERENCES articles(url),
+    position INTEGER NOT NULL CHECK (position >= 1),
+    kuerzel TEXT NOT NULL,
+    art TEXT NOT NULL CHECK (art IN ('redaktion', 'agentur', '20min', 'name')),
     PRIMARY KEY (url, position)
 );
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_candidates_phrase ON candidates(phrase);
 """
+# Spalten, die nach dem ersten Schema dazugekommen sind (Tabelle, Spalte, Typ).
+ADDED_COLUMNS = (
+    ("articles", "wortanzahl", "INTEGER"),
+    ("articles", "ressort_pfad", "TEXT"),
+    ("articles", "quelle_kuerzel", "TEXT"),
+    ("articles", "views", "INTEGER"),
+    ("articles", "aktualisiert", "TEXT"),
+    ("articles", "format", "TEXT"),
+    ("article_authors", "art", "TEXT"),
+    ("candidates", "lemma", "TEXT"),
+    ("candidates", "kopf", "TEXT"),
+)
 
 
 class Database:
@@ -59,12 +86,19 @@ class Database:
 
     def _add_missing_columns(self) -> None:
         # Ältere Datenbanken ohne die später ergänzten Spalten nachrüsten.
-        existing = {
-            row["name"] for row in self.connection.execute("PRAGMA table_info(articles)")
-        }
-        if "wortanzahl" not in existing:
-            self.connection.execute("ALTER TABLE articles ADD COLUMN wortanzahl INTEGER")
-            self.connection.commit()
+        for table, column, sql_type in ADDED_COLUMNS:
+            existing = {
+                row["name"]
+                for row in self.connection.execute(f"PRAGMA table_info({table})")
+            }
+            if column not in existing:
+                self.connection.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
+                )
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_candidates_lemma ON candidates(lemma)"
+        )
+        self.connection.commit()
 
     def __enter__(self):
         return self
@@ -103,35 +137,63 @@ class Database:
     def mark_done(self, url: str, page: Page, candidates: list[Candidate]) -> None:
         self.connection.execute("DELETE FROM candidates WHERE url=?", (url,))
         self.connection.executemany(
-            "INSERT INTO candidates VALUES (?, ?, ?, ?, ?, ?)",
+            """INSERT INTO candidates
+            (url, phrase, label, count, in_titel, in_lead, lemma, kopf)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                (url, c.phrase, c.label, c.count, c.in_titel, c.in_lead)
+                (
+                    url,
+                    c.phrase,
+                    c.label,
+                    c.count,
+                    c.in_titel,
+                    c.in_lead,
+                    c.lemma,
+                    c.kopf,
+                )
                 for c in candidates
+            ],
+        )
+        self.connection.execute("DELETE FROM article_kuerzel WHERE url=?", (url,))
+        self.connection.executemany(
+            """INSERT INTO article_kuerzel (url, position, kuerzel, art)
+            VALUES (?, ?, ?, ?)""",
+            [
+                (url, position, s.kuerzel, s.art)
+                for position, s in enumerate(page.quellen, start=1)
             ],
         )
         self.connection.execute("DELETE FROM article_authors WHERE url=?", (url,))
         self.connection.executemany(
-            "INSERT INTO article_authors VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO article_authors
+            (url, position, name, kuerzel, autor_id, art)
+            VALUES (?, ?, ?, ?, ?, ?)""",
             [
-                (url, position, a.name, a.kuerzel, a.autor_id)
+                (url, position, a.name, a.kuerzel, a.autor_id, a.art)
                 for position, a in enumerate(page.autoren, start=1)
             ],
         )
         self.connection.execute(
             """UPDATE articles SET status='done', attempts=attempts+1, http_code=200,
-            fetched_at=?, datum=?, titel=?, lead=?, ressort=?, likes=?, shares=?, kommentare=?,
-            wortanzahl=?
+            fetched_at=?, datum=?, aktualisiert=?, titel=?, lead=?, ressort=?,
+            ressort_pfad=?, likes=?, shares=?, kommentare=?, views=?,
+            quelle_kuerzel=?, wortanzahl=?, format=?
             WHERE url=?""",
             (
                 self._now(),
                 page.datum,
+                page.aktualisiert,
                 page.titel,
                 page.lead,
                 page.ressort,
+                page.ressort_pfad,
                 page.likes,
                 page.shares,
                 page.kommentare,
+                page.views,
+                page.quelle_kuerzel,
                 page.wortanzahl,
+                page.format,
                 url,
             ),
         )

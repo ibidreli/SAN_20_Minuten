@@ -1,20 +1,113 @@
-# F01: Kandidatenschicht
+# Datenextraktion 20 Minuten
 
-Die Pipeline persistiert Titel, Lead, Ressort, Datum, Interaktionsmetriken
-(Reaktionen, Shares, Kommentare), Wortanzahl, Autoren und Kandidaten in SQLite.
-Der Artikelkörper bleibt ausschliesslich im Arbeitsspeicher und wird nach der
-Extraktion verworfen; die Wortanzahl wird vorher aus ihm gezählt.
+Die Pipeline hat drei Schritte:
 
-Die Metriken und Autoren stammen aus dem eingebetteten Next.js-Zustand
-(`__NEXT_DATA__`), weil die Seite die Buttons erst im Browser rendert. Die
-Autoren landen roh in `article_authors` (Reihenfolge, Name, Kürzel, ID);
-ältere Artikel tragen oft nur ein Kürzel, Agenturen wie dpa stehen als
-gewöhnliche Einträge in der Liste.
+1. `get_data.py` sammelt die Artikel-URLs aus dem Tagesarchiv
+   (`20min.ch/sitemap/JJJJ/MM/TT`) in `data/20min_artikel_neu.csv` und
+   sortiert sie nach `data/20min_artikel_sortiert.csv`.
+2. `fetch_articles.py` ruft die Artikel ab und speichert pro Artikel
+   Metadaten, Autoren und alle Keyword-Kandidaten in SQLite.
+3. `keywords.py` wählt aus den Kandidaten die besten Keywords pro Artikel
+   und schreibt die Tabelle `keywords`. Dieser Schritt ist beliebig oft
+   wiederholbar, ohne neu zu crawlen.
+
+Der Artikeltext bleibt ausschliesslich im Arbeitsspeicher und wird nach der
+Extraktion verworfen. Alles, was später aus ihm gebraucht wird (Wortanzahl,
+Grundformen, Quellenkürzel), wird deshalb vorher berechnet.
+
+## Gespeicherte Daten
+
+**`articles`**, eine Zeile pro URL:
+
+| Spalte | Inhalt |
+|---|---|
+| `titel` | sichtbare Überschrift (`h1`), nicht der Social-Media-Titel |
+| `lead` | Lead unter der Überschrift |
+| `ressort`, `ressort_pfad` | tiefste Kategorie bzw. ganzer Pfad, z. B. `Ausland > Donald Trump`; `unbekannt`, wenn 20min keine Kategorie vergibt |
+| `datum`, `aktualisiert` | Publikation und letzte Änderung (ISO, UTC) |
+| `likes`, `shares`, `kommentare`, `views` | Reaktionen, Shares, Kommentare, Aufrufe zum Zeitpunkt des Abrufs (`fetched_at`); `kommentare` ist leer, wenn Kommentare gesperrt sind |
+| `wortanzahl` | Wörter im Fliesstext ohne Titel, Lead, Infobox, Umfragen, Bildtexte und Autorenbiografie; 0 bei Videos und Bildstrecken ohne Text |
+| `format` | `artikel` oder `ticker` (Liveticker: alle Einträge der ersten Seite zusammengefasst) |
+| `quelle_kuerzel` | Quellenzeile am Textende wie gedruckt, z. B. `chi/sep/sda`; zerlegt in `article_kuerzel` |
+
+**`article_authors`**: Autoren aus dem Redaktionssystem in Seitenreihenfolge
+mit Name, Kürzel, 20min-ID und Art. Kombinationen, die das CMS als einen
+Autor führt (`AFP/sys`, `chi/sep`, `Marius Egger/rub`), werden zerlegt.
+
+| `art` | Bedeutung | Beispiel |
+|---|---|---|
+| `person` | ausgeschriebener Name, meist mit ID | Jean-Claude Gerber, 40986771 |
+| `kuerzel` | nur Redaktionskürzel bekannt, keine ID | jcg |
+| `agentur` | Nachrichtenagentur oder Partnerdienst | SDA, Deutsche Presse-Agentur, spot on news |
+| `20min` | Platzhalter der Redaktion | 20 Minuten Newsdesk |
+| `sonstige` | nicht zuordenbar | Ortsangaben, Einzelfälle |
+
+**`article_kuerzel`**: die Quellenzeile am Textende, zerlegt in einzelne
+Einträge in gedruckter Reihenfolge. `(chi/sep/sda)` ergibt drei Zeilen:
+`chi` und `sep` mit `art = redaktion` (Personenkürzel), `sda` mit
+`art = agentur`. Weitere Arten sind `20min` (Quelle "20 Minuten") und `name`
+(ausgeschriebener Name). Die Agenturliste steht in `page_parser.AGENCIES`;
+jedes andere Kleinbuchstaben-Kürzel gilt als Person. Bildnachweise wie
+"(Quelle: YouTube)" werden nicht erfasst.
+
+**`candidates`**: alle Keyword-Kandidaten pro Artikel (im Test etwa 70),
+nicht nur die späteren Keywords.
+
+| Spalte | Inhalt |
+|---|---|
+| `phrase` | Originaltext, z. B. `die geplanten Parkhäuser` |
+| `label` | `PER`, `ORG`, `LOC`, `MISC` (spaCy-NER) oder `NOUN_CHUNK` |
+| `lemma` | Grundform ohne Artikel und Anführungszeichen, z. B. `geplant Parkhaus`; Namen nur ohne Flexionsendung (`Bidens` -> `Biden`) |
+| `kopf` | Kopfnomen einer Nominalphrase, z. B. `Parkhaus` |
+| `count`, `in_titel`, `in_lead` | Häufigkeit im Artikel, Vorkommen in Titel oder Lead |
+
+Pronomen und Phrasen ohne grossgeschriebenes Nomen werden nicht gespeichert.
+
+**`keywords`**: bis zu 8 Keywords pro Artikel plus die Stufen des
+Ressort-Pfads (`typ = RESSORT`). Gebildet aus Namen (Grundform) und
+Kopfnomen, Nachnamen auf den vollen Namen im Artikel abgebildet, Stoppliste
+für Zeitangaben, Allerweltswörter und Boilerplate, bewertet mit TF-IDF und
+Bonus für Titel, Lead und Namen. Ein Keyword muss in mindestens zwei Artikeln
+vorkommen (`--min-df`). `typ` (`PER`, `ORG`, `LOC`, `MISC`, `THEMA`) stammt
+aus der spaCy-Erkennung und ist in etwa 10–15 % der Fälle falsch.
+
+Metriken, Autoren und Ressort-Pfad stammen aus dem eingebetteten
+Next.js-Zustand (`__NEXT_DATA__`) bzw. dem JSON-LD-Breadcrumb, weil die Seite
+die Buttons erst im Browser rendert.
+
+Den Fliesstext erkennt der Parser über das `type`-Attribut, mit dem das CMS
+jeden Inhaltsblock markiert: `textBlockArray` (Absätze) und
+`interviewSegment` gelten als Text; `infobox`, `poll`, `ad`, `image`,
+`embed`, `quote` und Ähnliches nicht. Die Quellenzeile steht teils als eigener
+Block `agencies`. Fehlen diese Attribute (ältere Layouts, manche
+Ticker-Einträge), wählt eine Rückfallebene die Absatzklasse mit der grössten
+Textmenge. In Artikel eingebettete Artikel-Karten werden ignoriert. Nur
+Seiten ohne `<article>` (Themen- und Sonderseiten) landen als `failed`.
+
+## Eigenschaften der Quelle
+
+Diese Punkte sind keine Fehler der Extraktion, sondern so liefert 20min die
+Daten. Sie bestimmen, welche Aussagen die Analyse machen kann.
+
+- **Interaktionen** sind erst ab 2020 brauchbar. Vorher sind Likes und Shares
+  meist 0 und Kommentare durchgehend gesperrt (archiviert). Neue Artikel
+  sammeln in den ersten Tagen noch Reaktionen; für Vergleiche nur Artikel
+  verwenden, die beim Abruf mindestens eine Woche alt waren.
+- **Autoren** hängen vom Redaktionssystem ab: 2003–2009 oft der Platzhalter
+  "20 Minuten Newsdesk", etwa 2008–2020 nur Kürzel ohne ID, 2003–2018 häufig
+  eine Quellenzeile am Textende.
+- **Ressorts**: Die Einteilung hat sich geändert ("Regionen", "Lifestyle" und
+  "Community" erst ab etwa 2017). Für Zeitvergleiche die erste Stufe von
+  `ressort_pfad` verwenden.
+- **Zeitangaben** sind UTC und für Auswertungen nach Uhrzeit nach
+  `Europe/Zurich` umzurechnen; ältere Artikel sind nur minutengenau.
+- Die alte Datei `data/20min_metadaten_keywords_clean.csv` enthält bei etwa
+  10 % der Artikel zehnfach zu hohe Likes, Shares und Kommentare.
 
 ## Installation
 
-Getestet mit Python 3.11.9. Die aktuelle Extraktion benötigt Beautiful Soup,
-Requests, spaCy und das deutsche Sprachmodell `de_core_news_lg`. Alle vier
+Getestet mit Python 3.11.9. Die Extraktion benötigt Beautiful Soup, Requests,
+spaCy und das deutsche Sprachmodell `de_core_news_lg`. Alle vier
 Abhängigkeiten stehen in `requirements.txt`. Installation in PowerShell im
 Repository:
 
@@ -26,26 +119,44 @@ python -m venv .venv
 ```
 
 Das Modell wird bei der Installation der Requirements heruntergeladen, nicht
-beim Start des Crawlers. Parser, NER und Lemmatizer müssen vorhanden sein;
-die Kandidaten verwenden ausschliesslich `span.text`.
+beim Start des Crawlers. Parser, NER und Lemmatizer müssen vorhanden sein.
 Die folgenden Bedienbeispiele setzen eine aktivierte virtuelle Umgebung voraus.
 
 ## Bedienung
 
-Eine neue Datenbank benötigt `--input` mit einer CSV mit den Spalten `url` und
-`datum`. Die CSV wird gestreamt; Zeitraum und Stichprobe müssen bereits in der
-Eingabedatei ausgewählt sein.
+URL-Liste ab dem letzten gespeicherten Tag ergänzen (setzt selbständig fort,
+ohne Dubletten):
+
+```sh
+python -m data_extraction.get_data
+```
+
+Artikel abrufen. Eine neue Datenbank benötigt `--input` mit einer CSV mit den
+Spalten `url` und `datum`. Die CSV wird gestreamt; Zeitraum und Stichprobe
+müssen bereits in der Eingabedatei ausgewählt sein.
 
 ```sh
 python -m data_extraction.fetch_articles --db data/articles.sqlite --input data/20min_artikel_sortiert.csv --dry-run
 python -m data_extraction.fetch_articles --db data/articles.sqlite --input data/20min_artikel_sortiert.csv
 ```
 
+Keywords bilden (schreibt die Tabelle `keywords` neu):
+
+```sh
+python -m data_extraction.keywords --db data/articles.sqlite --top-k 8 --min-df 2
+```
+
 Ohne `--input` setzt ein Neustart eine vorhandene Datenbank fort. `--dry-run`
-zeigt den Plan, ohne das Modell zu laden oder zu schreiben.
+zeigt den Plan, ohne das Modell zu laden oder zu schreiben. Ältere
+Datenbanken erhalten neu hinzugekommene Spalten beim Öffnen automatisch.
 
 `Ctrl+C` committet den begonnenen Batch und beendet den Prozess mit Exitcode 130.
 Zum Fortsetzen denselben Befehl erneut aufrufen.
+
+Richtwerte aus den Tests: etwa 4 Artikel pro Sekunde und 23 KB pro Artikel,
+davon knapp 90 % für `candidates`. Eine Stichprobe von 70'000 Artikeln braucht
+rund 5 Stunden und 1,6 GB, alle Artikel rund 33 Stunden und 11 GB.
+Datenbanken sind über `.gitignore` von Git ausgeschlossen.
 
 ## Wiederaufnahme und Fehler
 
@@ -62,8 +173,8 @@ bearbeitbar ist.
 
 SQLite nutzt WAL und Fremdschlüssel. Pro Datenbank ist ein schreibender Crawler
 vorgesehen; gleichzeitig lesende Prozesse sind erlaubt. Beim Fortsetzen müssen
-Modell und Parserregeln unverändert bleiben. F01 speichert keine Modellversion
-in der Datenbank; die gewählte Version gehört in das Laufprotokoll.
+Modell und Parserregeln unverändert bleiben. Die Datenbank speichert keine
+Modellversion; die gewählte Version gehört in das Laufprotokoll.
 
 ## Abrufschicht
 
@@ -77,12 +188,13 @@ Die Freigabe des Vollcrawls erfolgt durch das Team, nicht durch das Skript.
 
 | Datei | Aufgabe |
 |---|---|
-| `sources.py` | HTTP-Abruf, Timeout, Backoff, Statuscode |
-| `page_parser.py` | HTML zu Titel, Lead, Körper, Ressort, Datum, Metriken |
-| `candidates.py` | spaCy NER und Nominalphrasen, ohne Normalisierung |
-| `db.py` | SQLite-Schema, Transaktionen, Wiederaufnahme |
-| `fetch_articles.py` | Ablauf, Batching, Signalbehandlung, CLI |
 | `get_data.py` | separater Sitemap-Crawler, erzeugt die URL-Liste |
+| `sources.py` | HTTP-Abruf, Timeout, Backoff, Statuscode |
+| `page_parser.py` | HTML zu Titel, Lead, Körper, Ressort, Datum, Metriken, Autoren, Quellenzeile |
+| `candidates.py` | spaCy NER und Nominalphrasen mit Grundform und Kopfnomen |
+| `db.py` | SQLite-Schema, Migration, Transaktionen, Wiederaufnahme |
+| `fetch_articles.py` | Ablauf, Batching, Signalbehandlung, CLI |
+| `keywords.py` | Keyword-Auswahl aus den Kandidaten, CLI |
 
 `handle_data.py` delegiert an denselben CLI. Kein Modul startet beim Import
 Arbeit.
