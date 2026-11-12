@@ -1,22 +1,34 @@
 # F01: Kandidatenschicht
 
-Die Pipeline persistiert Titel, Lead, Ressort, Datum, Interaktionsmetriken und
-Kandidaten in SQLite. Der Artikelkörper bleibt ausschliesslich im
-Arbeitsspeicher und wird nach der Extraktion verworfen.
+Die Pipeline persistiert Titel, Lead, Ressort, Datum, Interaktionsmetriken
+(Reaktionen, Shares, Kommentare), Wortanzahl, Autoren und Kandidaten in SQLite.
+Der Artikelkörper bleibt ausschliesslich im Arbeitsspeicher und wird nach der
+Extraktion verworfen; die Wortanzahl wird vorher aus ihm gezählt.
+
+Die Metriken und Autoren stammen aus dem eingebetteten Next.js-Zustand
+(`__NEXT_DATA__`), weil die Seite die Buttons erst im Browser rendert. Die
+Autoren landen roh in `article_authors` (Reihenfolge, Name, Kürzel, ID);
+ältere Artikel tragen oft nur ein Kürzel, Agenturen wie dpa stehen als
+gewöhnliche Einträge in der Liste.
 
 ## Installation
 
-Getestet mit Python 3.11.9. Im Repository:
+Getestet mit Python 3.11.9. Die aktuelle Extraktion benötigt Beautiful Soup,
+Requests, spaCy und das deutsche Sprachmodell `de_core_news_lg`. Alle vier
+Abhängigkeiten stehen in `requirements.txt`. Installation in PowerShell im
+Repository:
 
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-f01.txt
-python -m pip install https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
+```powershell
+# Nur erstellen, wenn noch keine virtuelle Umgebung existiert:
+python -m venv .venv
+
+.\.venv\Scripts\python.exe -m pip install --only-binary=:all: -r requirements.txt
 ```
 
-Das Modell wird nicht automatisch heruntergeladen. Parser, NER und Lemmatizer
-müssen vorhanden sein; die Kandidaten verwenden ausschliesslich `span.text`.
+Das Modell wird bei der Installation der Requirements heruntergeladen, nicht
+beim Start des Crawlers. Parser, NER und Lemmatizer müssen vorhanden sein;
+die Kandidaten verwenden ausschliesslich `span.text`.
+Die folgenden Bedienbeispiele setzen eine aktivierte virtuelle Umgebung voraus.
 
 ## Bedienung
 

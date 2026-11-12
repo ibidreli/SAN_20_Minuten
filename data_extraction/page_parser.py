@@ -33,6 +33,15 @@ class LayoutError(ValueError):
 
 
 @dataclass(frozen=True)
+class Author:
+    # Rohwerte aus dem CMS. Ältere Artikel tragen oft nur ein Kürzel als Name
+    # und keine ID; die Zuordnung Kürzel -> Person folgt in der Analyse.
+    name: str
+    kuerzel: str | None = None
+    autor_id: int | None = None
+
+
+@dataclass(frozen=True)
 class Page:
     titel: str = ""
     lead: str = ""
@@ -42,6 +51,8 @@ class Page:
     likes: int | None = None
     shares: int | None = None
     kommentare: int | None = None
+    wortanzahl: int | None = None
+    autoren: tuple[Author, ...] = ()
     body_class: str = ""
     paragraph_count: int = 0
     kept_paragraph_count: int = 0
@@ -115,23 +126,41 @@ def extract_datum_from_html(
     return fallback_datum
 
 
-def parse_count_from_sibling(button: Tag | None) -> int | None:
-    if button is None:
-        return None
-    span = button.find_next_sibling("span")
-    if span is None and button.parent:
-        span = button.parent.find("span")
-    if span is not None:
-        raw = re.sub(r"[’'.\s]", "", span.get_text(strip=True))
-        if raw.isdecimal():
-            return int(raw)
-    return None
+def next_data_meta(soup: BeautifulSoup) -> dict:
+    # Die Interaktionsbuttons rendert erst das Browser-JavaScript; im
+    # ausgelieferten HTML stehen die Zahlen nur im Next.js-Zustand.
+    script = soup.find("script", id="__NEXT_DATA__")
+    if script is None:
+        return {}
+    try:
+        meta = json.loads(script.get_text())["props"]["pageProps"]["data"][
+            "content"
+        ]["meta"]
+    except (ValueError, TypeError, KeyError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
 
 
-def comments_enabled(soup: BeautifulSoup) -> bool:
-    return bool(soup.select_one("#commentSection, #comments")) or any(
-        "commentCount" in node for node in json_ld_nodes(soup)
-    )
+def parse_count(value) -> int | None:
+    raw = re.sub(r"[’'.\s]", "", str(value)) if value is not None else ""
+    return int(raw) if raw.isdecimal() else None
+
+
+def extract_authors(meta: dict) -> tuple[Author, ...]:
+    # Reihenfolge wie auf der Seite; Agenturen (z. B. dpa) stehen als
+    # gewöhnliche Einträge in derselben Liste.
+    authors = []
+    for entry in meta.get("authors") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = re.sub(r"\s+", " ", str(entry.get("name") or "")).strip()
+        if not name:
+            continue
+        kuerzel = str(entry.get("shortName") or "").strip() or None
+        authors.append(
+            Author(name, kuerzel, parse_count(entry.get("publicUserId")))
+        )
+    return tuple(authors)
 
 
 def is_boilerplate(paragraph: Tag, article: Tag) -> bool:
@@ -183,10 +212,9 @@ def parse_page(html: str, fallback_datum: str | None = None) -> Page:
         else (title_meta.get("content", "") if title_meta else "")
     )
 
-    def count(testid):
-        return parse_count_from_sibling(
-            soup.find("button", attrs={"data-testid": testid})
-        )
+    meta = next_data_meta(soup)
+    community = (meta.get("clientdata") or {}).get("community") or {}
+    settings = meta.get("settings") or {}
 
     return Page(
         titel=clean_text(titel),
@@ -194,9 +222,20 @@ def parse_page(html: str, fallback_datum: str | None = None) -> Page:
         body="\n\n".join(body_parts),
         ressort=extract_ressort_from_html(soup),
         datum=extract_datum_from_html(soup, fallback_datum),
-        likes=count("RatingButton"),
-        shares=count("ButtonShare"),
-        kommentare=count("ButtonComment") if comments_enabled(soup) else None,
+        # "likes" im Community-Objekt ist durchgehend 0; die sichtbare
+        # Reaktionszahl (und die Spalte likes der alten CSV) ist contentRatings.
+        likes=parse_count(community.get("contentRatings")),
+        shares=parse_count(community.get("shares")),
+        kommentare=(
+            parse_count(community.get("comments"))
+            if settings.get("commentingEnabled")
+            else None
+        ),
+        # Wörter im extrahierten Körper (ohne Titel, Lead, Infobox). Das
+        # wordCount-Feld des CMS liegt rund 80 % über dem sichtbaren Text und
+        # ist nicht nachvollziehbar, darum zählen wir selbst.
+        wortanzahl=sum(len(part.split()) for part in body_parts),
+        autoren=extract_authors(meta),
         body_class=" ".join(body_class),
         paragraph_count=paragraph_count,
         kept_paragraph_count=len(body_parts),

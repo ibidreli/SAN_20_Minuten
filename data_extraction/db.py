@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS articles (
     ressort TEXT,
     likes INTEGER,
     shares INTEGER,
-    kommentare INTEGER
+    kommentare INTEGER,
+    wortanzahl INTEGER
 );
 CREATE TABLE IF NOT EXISTS candidates (
     url TEXT NOT NULL REFERENCES articles(url),
@@ -33,6 +34,14 @@ CREATE TABLE IF NOT EXISTS candidates (
     in_titel INTEGER NOT NULL CHECK (in_titel IN (0, 1)),
     in_lead INTEGER NOT NULL CHECK (in_lead IN (0, 1)),
     PRIMARY KEY (url, phrase, label)
+);
+CREATE TABLE IF NOT EXISTS article_authors (
+    url TEXT NOT NULL REFERENCES articles(url),
+    position INTEGER NOT NULL CHECK (position >= 1),
+    name TEXT NOT NULL,
+    kuerzel TEXT,
+    autor_id INTEGER,
+    PRIMARY KEY (url, position)
 );
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_candidates_phrase ON candidates(phrase);
@@ -46,6 +55,16 @@ class Database:
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.executescript(SCHEMA)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        # Ältere Datenbanken ohne die später ergänzten Spalten nachrüsten.
+        existing = {
+            row["name"] for row in self.connection.execute("PRAGMA table_info(articles)")
+        }
+        if "wortanzahl" not in existing:
+            self.connection.execute("ALTER TABLE articles ADD COLUMN wortanzahl INTEGER")
+            self.connection.commit()
 
     def __enter__(self):
         return self
@@ -90,9 +109,18 @@ class Database:
                 for c in candidates
             ],
         )
+        self.connection.execute("DELETE FROM article_authors WHERE url=?", (url,))
+        self.connection.executemany(
+            "INSERT INTO article_authors VALUES (?, ?, ?, ?, ?)",
+            [
+                (url, position, a.name, a.kuerzel, a.autor_id)
+                for position, a in enumerate(page.autoren, start=1)
+            ],
+        )
         self.connection.execute(
             """UPDATE articles SET status='done', attempts=attempts+1, http_code=200,
-            fetched_at=?, datum=?, titel=?, lead=?, ressort=?, likes=?, shares=?, kommentare=?
+            fetched_at=?, datum=?, titel=?, lead=?, ressort=?, likes=?, shares=?, kommentare=?,
+            wortanzahl=?
             WHERE url=?""",
             (
                 self._now(),
@@ -103,6 +131,7 @@ class Database:
                 page.likes,
                 page.shares,
                 page.kommentare,
+                page.wortanzahl,
                 url,
             ),
         )

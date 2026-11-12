@@ -1,14 +1,14 @@
--r requirements-f01.txt
-newspaper3k==0.2.8
-pandas==2.2.2
-lxml_html_clean
-trafilatura 
-yake
-matplotlib
-seaborn
-pandas 
-networkx 
-matplotlib 
-tqdm
-pyvis 
-pandas
+# Externe Pakete für alle Python-Dateien im Repository.
+# Module der Python-Standardbibliothek werden mit Python installiert.
+
+# import bs4 / from bs4 import BeautifulSoup, Tag
+beautifulsoup4==4.15.0
+
+# import requests
+requests==2.34.2
+
+# import spacy / from spacy.language import Language
+spacy==3.8.16
+
+# Sprachmodell für spacy.load("de_core_news_lg") in candidates.py
+de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
