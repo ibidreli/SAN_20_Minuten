@@ -76,8 +76,8 @@ Ausfuehrungsreihenfolge, jeweils **vom Repository-Wurzelverzeichnis** aus:
 
 ```bash
 python src/clean_dataset.py              # Rohdaten -> data/20min_cleaned_post2020.parquet
-python scripts/build_analysis_notebook.py  # erzeugt src/02_analyse.ipynb
-python scripts/run_notebook.py           # fuehrt das Notebook headless aus
+python scripts/run_notebook.py           # baut, fuehrt aus und setzt die Kennzahlen in den Text ein
+python scripts/validate_notebook.py      # Qualitaetsgate, siehe unten
 python scripts/build_manifest.py         # aktualisiert die Hashes in data/manifest.json
 python scripts/build_manifest.py --check # prueft Rohdaten und Parquet gegen das Manifest
 python scripts/package_submission.py --dry-run  # zeigt das Abgabe-Paket
@@ -86,18 +86,44 @@ python scripts/build_ground_truth_validation.py --offline  # Audit-Report neu re
 python scripts/build_ground_truth_validation.py            # Live-Audit gegen 20min.ch
 ```
 
+`scripts/build_analysis_notebook.py` kann auch einzeln laufen, erzeugt dann
+aber ein Notebook mit unaufgeloesten Platzhaltern. Der Weg ueber
+`run_notebook.py` ist der vorgesehene.
+
 Die Unit-Tests der Netzwerkmodelle laufen mit:
 
 ```bash
 python src/network_models.py
 ```
 
+### Kennzahlen im Fliesstext
+
+Die Interpretationstexte enthalten keine handgeschriebenen Zahlen. Jede
+Kennzahl laeuft im Notebook durch `fact(schluessel, wert, format)`, landet in
+`data/notebook_facts.json` und wird von `scripts/run_notebook.py` nach der
+Ausfuehrung in die Platzhalter `{{schluessel}}` eingesetzt. Ein erneuter Lauf
+schreibt den Text also neu, statt eine alte Zahl stehen zu lassen.
+
+`scripts/validate_notebook.py` prueft danach sieben Bedingungen und bricht mit
+Rueckgabewert 1 ab, wenn eine verletzt ist:
+
+1. keine Zelle mit Ausfuehrungsfehler,
+2. kein unaufgeloester Platzhalter,
+3. keine Steuerzeichen im Markdown (verunglueckte LaTeX-Escapes),
+4. **jede Zahl im Fliesstext ist durch eine Zellenausgabe oder die Registry
+   gedeckt**; Ausnahmen brauchen einen begruendeten Eintrag in
+   `ALLOWED_NUMBERS`,
+5. Abbildungen luecklos nummeriert, alle inline sichtbar und im Text
+   referenziert,
+6. auf jede Abbildungszelle folgt eine Interpretation,
+7. die Registry existiert.
+
 Die Quarto-Dokumente in `src/` verwenden dagegen dokumentrelative Pfade
 (`../data/...`) und werden mit `quarto render src/01_cleaning.qmd` gerendert.
 
 ## Stand der Code-Review-Befunde
 
-Das Projekt wurde in drei Runden systematisch reviewt. Alle Befunde sind
+Das Projekt wurde in sechs Runden systematisch reviewt. Alle Befunde sind
 behoben und durch Unit-Tests in `src/network_models.py` abgesichert
 (`python src/network_models.py`).
 
@@ -123,12 +149,13 @@ Vier weitere Punkte kamen bei der Behebung dazu:
 - Der **Agentur-Filter** verglich nur exakte Zeichenketten. Zusammengesetzte
   Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` (214 Artikel,
   Mitglied der groessten Clique) gelangten als vermeintliche Personen in den
-  Graphen. Token-basierte Filterung entfernt 133 institutionelle Knoten
-  (947 auf 814 Autor:innen).
+  Graphen. Token-basierte Filterung entfernte in dieser Runde 133
+  institutionelle Knoten (947 auf 814 Autor:innen). Runde 4 zeigte, dass der
+  Filter weiter durchliess, und erweiterte ihn auf 166 Knoten (947 auf 781).
 - Der **QAP-Test** korrelierte zunaechst zwei Matrizen, die beide fuer nicht
   benachbarte Paare null sind, und mass damit teilweise blosse
   Kanten-Kopraesenz. Mit einer ueber alle Dyaden definierten JSD-Matrix kehrt
-  sich das Vorzeichen von +0.148 auf -0.140 um, was der Homophilie-Hypothese
+  sich das Vorzeichen von +0.148 auf -0.1393 um, was der Homophilie-Hypothese
   entspricht.
 
 ### Runde 2: zehn Befunde zu Vollstaendigkeit und Belegbarkeit
@@ -150,7 +177,7 @@ Vier weitere Punkte kamen bei der Behebung dazu:
 
 | # | Befund | Behebung |
 |---|---|---|
-| 1 | **Diffusion war am Maximalgewicht normiert.** Bei $w_{max} = 103$ und Median $1.0$ lag die effektive Uebertragungswahrscheinlichkeit rund 50-fach unter dem angegebenen $p$; 94.7% der Kanten unter 0.01. Der Befund „Hubs schlagen Broker“ war ein Artefakt. | Normierung am Median, magische Konstante entfernt, Sweep ueber $p \in \{0.02, ..., 0.5\}$. Ergebnis kehrt sich um: bei kleinem $p$ gewinnen die Broker klar, ab $p \approx 0.1$ wird die Startmenge irrelevant |
+| 1 | **Diffusion war am Maximalgewicht normiert.** Bei $w_{max} = 103$ und Median $1.0$ lag die effektive Uebertragungswahrscheinlichkeit rund 50-fach unter dem angegebenen $p$; 94.7% der Kanten unter 0.01. Der Befund „Hubs schlagen Broker“ war ein Artefakt. | Normierung am Median, magische Konstante entfernt, Sweep ueber $p \in \{0.02, ..., 0.5\}$. Nach dieser Korrektur lagen die Broker vorn. Auch das war noch ein Artefakt, siehe Runde 4, Befund 4: mit vergleichbarer Baseline verschwindet der Vorsprung ganz |
 | 2 | $C_B$ trug die Aussage zu Hypothese 2, war aber nur bei $k=10$ geprueft | $C_B$ in die Sensitivitaetsanalyse aufgenommen. Ergebnis: **nicht robust** (Maximum 2020/2020/2023), die Aussage wurde entsprechend zurueckgenommen |
 | 3 | Das robuste $Q$-Minimum 2020 bei allen $k$ war nicht erwaehnt | Als k-robuste Bestaetigung der Modularitaets-Haelfte von Hypothese 2 ausgewiesen |
 | 4 | Abstract, Forschungsfrage und Kapitelnummerierung waren veraltet | Abstract auf vier Pfeiler aktualisiert, Burt-Formulierung korrigiert, Nummerierung durchgezogen |
@@ -189,6 +216,26 @@ python scripts/run_notebook.py && cp -f src/02_analyse.ipynb /tmp/a.ipynb
 python scripts/run_notebook.py   # Ausgaben mit /tmp/a.ipynb vergleichen
 ```
 
+### Runde 6: veraltete Zahlen im Fliesstext, und die strukturelle Ursache
+
+| # | Befund | Behebung |
+|---|---|---|
+| 1 | **Zwei Interpretationszellen widersprachen der Ausgabe direkt darueber.** Die Modellierungszelle nannte 814 / 83'707 / 574 / 2'754, gedruckt waren 781 / 83'273 / 554 / 2'717. Die OLS-Zelle nannte $N = 6'887$, adj. $R^2 = 0.353$ und einen Koeffizienten von 0.61, gedruckt waren 6'586, 0.3610 und 0.6754 | Beide Zellen ziehen ihre Zahlen jetzt aus der Registry |
+| 2 | Die Brokerage-Interpretation beschrieb noch die fehlerhafte Betweenness-Rangliste („teilweise andere Namen, oft mit deutlich geringerem Grad“). Tatsaechlich liegen neun der zehn auf oder ueber dem Median-Grad | Absatz neu gefasst und vollstaendig aus berechneten Werten erzeugt; die eine Ausnahme wird benannt |
+| 3 | `README.md` widersprach sich selbst zur Diffusion: Runde 3 behauptete einen Broker-Vorsprung, den Runde 4 widerlegt hatte | Runde-3-Eintrag als Zwischenstand gekennzeichnet und auf Runde 4 verwiesen |
+| 4 | Der Block „Siegerstrategie je p“ druckte fuer jedes $p$ einen Sieger ohne Streuungsmass, waehrend der Text sagte, die Wahl sei egal | Standardabweichungs-Tabelle, 95%-KI des Mittelwerts und $z$-Statistik je $p$; verglichen werden nur die drei Strategien aus derselben Grundgesamtheit. Ergebnis: bei 2 von 5 $p$-Werten ist der Abstand trennscharf, aber die Zufallsauswahl fuehrt bei 4 von 5 |
+| 5 | Assortativitaets- und Nullmodell-Zelle nannten $r = 0.3630$ und $0.3371$ / $0.6258$; gedruckt waren $0.3621$ und $0.3355$ / $0.6199$ | Ueber die Registry |
+| 6 | `$\text{...}$` stand in einem nicht-rohen Python-String und wurde zu einem Tabulator; zwei Formeln wurden nicht gesetzt | Escape korrigiert, Pruefung 3 des Gates faengt den Fall kuenftig ab |
+| 7 | Evidence Map und Lessons Learned nannten weiter 133 entfernte Knoten | Auf 166 korrigiert |
+
+**Die strukturelle Ursache.** Alle drei bisherigen Runden hatten dasselbe
+Muster: die Korrektur am Code war richtig, aber die Prosa mit den
+festgeschriebenen Zahlen lief still aus dem Takt. Deshalb wurde in dieser Runde
+nicht nur der Text korrigiert, sondern die Fehlerklasse entfernt. Zahlen
+stehen nicht mehr im Text, sondern werden zur Laufzeit eingesetzt, und
+`scripts/validate_notebook.py` bricht ab, sobald eine Zahl im Fliesstext
+nirgends gedeckt ist.
+
 ### Auswirkungen auf die Resultate
 
 - 41.4% der Kommentarwerte (48'970 Artikel) waren faelschlich 0.
@@ -198,13 +245,15 @@ python scripts/run_notebook.py   # Ausgaben mit /tmp/a.ipynb vergleichen
   entfernt: 781 statt 947 Autor:innen, 554 statt 639 Knoten im
   Kollaborationsnetzwerk.
 - PR-AUC der Link-Prediction im finalen Fenster: 0.1939 statt 0.1230.
-- QAP-Korrelation Kollaborationsgewicht zu Ressort-Divergenz: -0.140 statt
+- QAP-Korrelation Kollaborationsgewicht zu Ressort-Divergenz: -0.1393 statt
   +0.148 (Vorzeichenumkehr nach Korrektur der Matrixdefinition).
 - Diffusion: nach Korrektur von Normierung UND Baseline unterscheiden sich die
   Startmengen-Strategien um weniger als 2%. Die zuvor berichteten Vorspruenge
   (erst "Hubs schlagen Broker", dann "Broker erreichen das 2.5-fache") waren
   beide methodische Artefakte.
 - Assortativitaet r = 0.3621.
+- 78 Kennzahlen im Fliesstext werden zur Laufzeit eingesetzt statt von Hand
+  geschrieben.
 
 ### Verbleibende Einschraenkung
 

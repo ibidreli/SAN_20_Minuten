@@ -27,11 +27,11 @@ Dieses Notebook enthält die vollständige empirische Soziale Netzwerkanalyse de
    Vorhersage zukünftiger Kooperationen über drei rollende Zeithorizonte unter unbalancierten Realbedingungen (Average Precision, Precision@$k$ für $k \in \{20, 50, 100\}$, ROC-AUC), mit Bootstrap-Konfidenzintervall für den Vergleich von Triadenschliessung (Adamic-Adar) und Popularität (Preferential Attachment).
 
 4. **Pfeiler 4 (LE9): Diffusion im Kollaborationsnetzwerk**  
-   Independent-Cascade-Simulation über den gesamten Bereich der Übertragungswahrscheinlichkeit $p$, mit Vergleich dreier Startmengen-Strategien (Burt-Broker, Hubs, Zufall).
+   Independent-Cascade-Simulation über den gesamten Bereich der Übertragungswahrscheinlichkeit $p$. Drei Startmengen-Strategien aus derselben Grundgesamtheit (Burt-Broker, Hubs, Zufall) werden mit Streuungsmass und $z$-Statistik verglichen, eine naive Zufallsziehung über alle Knoten zusätzlich ausgewiesen.
 
 Nicht abgedeckt ist LE10 (Graphlets); der Ausblick benennt dies als nächsten Schritt.
 
-**Reproduzierbarkeit.** Alle Kennzahlen entstehen aus `src/network_models.py`, dessen Kernfunktionen durch 17 Unit-Tests abgesichert sind (`python src/network_models.py`). Die Datenintegrität ist über `data/manifest.json` prüfbar (`python scripts/build_manifest.py --check`). Sämtliche Abbildungen sind durchnummeriert (Abb. 1 bis 14) und im Text referenziert.
+**Reproduzierbarkeit.** Alle Kennzahlen entstehen aus `src/network_models.py`, dessen Kernfunktionen durch 17 Unit-Tests abgesichert sind (`python src/network_models.py`). Die Datenintegrität ist über `data/manifest.json` prüfbar (`python scripts/build_manifest.py --check`). Sämtliche Abbildungen sind durchnummeriert (Abb. 1 bis 14) und im Text referenziert. Alle im Fliesstext genannten Kennzahlen werden zur Laufzeit aus den berechneten Werten eingesetzt (`data/notebook_facts.json`), nicht von Hand geschrieben; `scripts/validate_notebook.py` bricht ab, falls ein Platzhalter offen bleibt.
 
 ---
 """))
@@ -92,6 +92,23 @@ plt.rcParams['figure.dpi'] = 150
 os.makedirs('out_plots', exist_ok=True)
 os.makedirs('graphen', exist_ok=True)
 
+# --- Zahlen-Registry -------------------------------------------------------
+# Jede Zahl, die spaeter im Interpretationstext auftaucht, wird hier registriert.
+# Die Markdown-Zellen enthalten nur Platzhalter der Form {{schluessel}};
+# scripts/run_notebook.py setzt sie nach der Ausfuehrung aus dieser Registry ein.
+# Damit kann ein erneuter Lauf keine veralteten Zahlen im Fliesstext
+# zuruecklassen - der Fliesstext wird bei jedem Lauf neu aus den berechneten
+# Werten erzeugt.
+NOTEBOOK_FACTS = {}
+
+
+def fact(key, value, spec=''):
+    txt = format(value, spec) if spec else str(value)
+    if ',' in spec:
+        txt = txt.replace(',', "'")
+    NOTEBOOK_FACTS[key] = txt
+    return value
+
 # 1. Load Clean Dataset
 df = pd.read_parquet('data/20min_cleaned_post2020.parquet')
 print(f'Geladene Artikel: {len(df):,}')
@@ -116,11 +133,17 @@ print(f'Davon Mehrautoren-Artikel: {len(multi_df):,} ({len(multi_df) / max(n_art
 G_collab = project_author_collaboration(df, min_articles=2)
 print(f'One-Mode Kollaborations-Graph (min. 2 Artikel): {G_collab.number_of_nodes():,} Autoren, {G_collab.number_of_edges():,} Kollaborationskanten')
 print(f'Netzwerk-Dichte: {nx.density(G_collab):.4f}')
+
+fact('n_authors_bip', n_authors, ',d')
+fact('n_articles_bip', n_articles, ',d')
+fact('n_collab_nodes', G_collab.number_of_nodes(), ',d')
+fact('n_collab_edges', G_collab.number_of_edges(), ',d')
+fact('collab_density_pct', nx.density(G_collab) * 100, '.2f')
 """))
 
-cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Modellierung).** Das Two-Mode-Netzwerk verbindet 814
-Journalist:innen mit 83'707 Artikeln. Die Newman-Projektion auf ein One-Mode-
-Netzwerk reduziert dies auf 574 Autor:innen mit 2'754 Kollaborationskanten,
+cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Modellierung).** Das Two-Mode-Netzwerk verbindet {{n_authors_bip}}
+Journalist:innen mit {{n_articles_bip}} Artikeln. Die Newman-Projektion auf ein One-Mode-
+Netzwerk reduziert dies auf {{n_collab_nodes}} Autor:innen mit {{n_collab_edges}} Kollaborationskanten,
 weil nur Personen mit mindestens zwei Artikeln aufgenommen werden und
 Einzelautorenschaften keine Kante erzeugen.
 
@@ -128,7 +151,7 @@ Die Gewichtung nach Newman ist hier wesentlich: Ein Artikel mit zwei Autor:innen
 erzeugt eine Kante vom Gewicht 1, ein Artikel mit fuenf Autor:innen dagegen
 zehn Kanten vom Gewicht je 0.25. Ohne diese Normierung wuerden grosse
 Redaktionsteams die Struktur dominieren, obwohl die einzelne Zweierbeziehung
-darin schwaecher ist. Die Netzwerkdichte von rund 1.7% zeigt bereits hier: die
+darin schwaecher ist. Die Netzwerkdichte von {{collab_density_pct}}% zeigt bereits hier: die
 Redaktion ist kein dicht verwobenes Kollektiv, sondern ein duenn besetztes Netz
 aus vielen kleinen Konstellationen. Alle weiteren Analysen in Kapitel 2 bauen
 auf diesem projizierten Graphen auf.
@@ -202,6 +225,49 @@ overlap = set(top_burt['author']) & set(top_between['author'])
 print(f'\\nSchnittmenge beider Ranglisten: {len(overlap)} Personen'
       + (f' ({", ".join(sorted(overlap))})' if overlap else ''))
 
+# Sind Betweenness-Broker peripher oder gut vernetzt? Referenz ist der
+# Median-Grad der Broker-Grundgesamtheit, nicht ein frei gewaehlter Schwellenwert.
+pool_median_deg = float(broker_pool['degree'].median())
+tb_hi = top_between[top_between['degree'] >= pool_median_deg]
+tb_lo = top_between[top_between['degree'] < pool_median_deg]
+print(f'\\nMedian-Grad der Broker-Grundgesamtheit: {pool_median_deg:.0f}')
+print(f'Betweenness-Top-10: {len(tb_hi)} Personen auf oder ueber diesem Median, '
+      f'{len(tb_lo)} darunter')
+if len(tb_lo):
+    print('  darunter: ' + ', '.join(f'{r.author} (Grad {int(r.degree)}, '
+                                     f'Constraint {r.burt_constraint:.2f})'
+                                     for r in tb_lo.itertuples()))
+
+fact('rank_overlap', len(overlap))
+fact('pool_median_deg', int(pool_median_deg))
+fact('tb_hi_n', len(tb_hi))
+fact('tb_hi_min', int(tb_hi['degree'].min()) if len(tb_hi) else 0)
+fact('tb_hi_max', int(tb_hi['degree'].max()) if len(tb_hi) else 0)
+fact('tb_lo_n', len(tb_lo))
+if len(tb_lo) == 1:
+    _r = next(tb_lo.itertuples())
+    _lo_sentence = (f'Unterhalb des Median-Grads liegt genau eine Person, '
+                    f'{_r.author} mit Grad {int(_r.degree)}; sie erreicht hohe '
+                    f'Betweenness trotz weniger Kontakte und hat zugleich einen '
+                    f'Burt-Constraint von {_r.burt_constraint:.2f}, also weit '
+                    f'ueber dem Niveau der Burt-Top-10.')
+elif len(tb_lo) > 1:
+    _names = ', '.join(f'{r.author} (Grad {int(r.degree)}, Constraint '
+                       f'{r.burt_constraint:.2f})' for r in tb_lo.itertuples())
+    _lo_sentence = (f'Unterhalb des Median-Grads liegen {len(tb_lo)} Personen: '
+                    f'{_names}. Sie erreichen hohe Betweenness trotz weniger '
+                    f'Kontakte und haben zugleich einen deutlich hoeheren '
+                    f'Burt-Constraint als die Burt-Top-10.')
+else:
+    _lo_sentence = ('Unterhalb des Median-Grads liegt niemand: die '
+                    'Betweenness-Top-10 besteht ausschliesslich aus gut '
+                    'vernetzten Personen.')
+fact('tb_lo_sentence', _lo_sentence)
+fact('burt_eff_min', top_burt['efficiency'].min(), '.2f')
+fact('burt_eff_max', top_burt['efficiency'].max(), '.2f')
+fact('burt_deg_min', int(top_burt['degree'].min()))
+fact('burt_deg_max', int(top_burt['degree'].max()))
+
 # Abbildung 2: Burt-Constraint vs. Betweenness, zwei Broker-Begriffe im Vergleich
 fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
 
@@ -240,21 +306,35 @@ plt.show()
 """))
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 1, zwei Arten von Broker).** Die beiden Ranglisten
-messen Verschiedenes und fallen entsprechend auseinander. **Betweenness** fragt,
+messen Verschiedenes und fallen entsprechend nur teilweise zusammen.
+**Betweenness** fragt,
 wer auf vielen kuerzesten Wegen liegt. **Burts Constraint** fragt, wessen
 Kontakte einander *nicht* kennen: ein niedriger Wert heisst, dass die Person
 Gruppen verbindet, die sonst nichts miteinander zu tun haetten. Genau das ist
 der Begriff des strukturellen Lochs, den der Meilenstein angekuendigt hat.
 
-Die Burt-Rangliste wird von Personen mit hohem Grad und hoher Artikelzahl
-angefuehrt, deren Effizienz nahe bei 1 liegt: nahezu jeder ihrer Kontakte
-liefert ihnen Zugang zu einem eigenen Umfeld, ihre Koautor:innen ueberschneiden
-sich also kaum. Redaktionell sind das die Personen mit dem breitesten
-Informationszugang.
+Die Burt-Rangliste wird von Personen mit hohem Grad ({{burt_deg_min}} bis
+{{burt_deg_max}} Koautor:innen) und hoher Artikelzahl angefuehrt, deren
+Effizienz zwischen {{burt_eff_min}} und {{burt_eff_max}} liegt: nahezu jeder
+ihrer Kontakte liefert ihnen Zugang zu einem eigenen Umfeld, ihre Koautor:innen
+ueberschneiden sich also kaum. Redaktionell sind das die Personen mit dem
+breitesten Informationszugang.
 
-Die Betweenness-Rangliste enthaelt teilweise andere Namen, oft mit deutlich
-geringerem Grad. Diese Personen sind nicht breit vernetzt, sitzen aber an einer
-Engstelle. Fuer die Redaktion sind beide Rollen relevant, aber unterschiedlich:
+Die Betweenness-Rangliste ist nicht dieselbe Liste, aber auch keine Gegenliste:
+{{rank_overlap}} der zehn Namen stehen in beiden. Vor allem sind es keine
+peripheren Personen. {{tb_hi_n}} der zehn liegen auf oder ueber dem Median-Grad
+der Broker-Grundgesamtheit ({{pool_median_deg}}), mit Graden zwischen
+{{tb_hi_min}} und {{tb_hi_max}}. Brokerage ist in dieser Redaktion also keine
+Randposition, sondern wird von gut vernetzten Personen besetzt. Das ist ein
+inhaltlicher Befund und nicht selbstverstaendlich: es waere ebenso denkbar
+gewesen, dass die Vermittlung zwischen den Ressorts von wenigen
+Grenzgaenger:innen mit kleinem Kontaktkreis getragen wird.
+
+Genau dieser Typus taucht in der Rangliste aber als Ausnahme auf.
+{{tb_lo_sentence}} Diese Position ist nicht breit vernetzt, sondern eine
+Engstelle: wenige Kontakte, die untereinander nichts verbindet.
+
+Fuer die Redaktion sind beide Rollen relevant, aber unterschiedlich:
 Burt-Broker sind wertvoll fuer Ideenzufluss, Betweenness-Broker sind ein
 Ausfallrisiko. Wie gross dieses Risiko ist, quantifiziert 2.6.
 """))
@@ -284,6 +364,15 @@ p_txt_assort = (f'p < {p_floor_assort:.4f}' if p_val_assort <= p_floor_assort
                 else f'p = {p_val_assort:.4f}')
 print(f'Nullmodell (B={B_PERM}): Mean r_null = {perm_r.mean():.4f}, Std = {perm_r.std():.4f}')
 print(f'Empirischer p-Wert: p = {p_val_assort:.5f}')
+print(f'Abstand zur Nullverteilung: {(r_obs - perm_r.mean()) / perm_r.std():.1f} Standardabweichungen')
+
+fact('r_obs', r_obs, '.4f')
+fact('r_obs_2dp', r_obs, '.2f')
+fact('r_null_mean', perm_r.mean(), '.4f')
+fact('r_null_std', perm_r.std(), '.4f')
+fact('r_sigma', (r_obs - perm_r.mean()) / perm_r.std(), '.0f')
+fact('perm_b', B_PERM, ',d')
+fact('p_assort', p_val_assort, '.4f')
 
 # Plot Permutation Distribution
 plt.figure(figsize=(9, 5))
@@ -299,15 +388,15 @@ plt.show()
 """))
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 2, Ressort-Homophilie).** Der beobachtete
-Assortativitaetskoeffizient von $r = 0.3630$ liegt weit ausserhalb der
-Nullverteilung, die bei zufaelliger Ressortzuordnung um $-0.0062 \pm 0.0066$
-streut. Der Abstand betraegt mehr als 50 Standardabweichungen, $p = 0.0002$ ist
-der kleinste Wert, den 5'000 Permutationen aufloesen koennen.
+Assortativitaetskoeffizient von $r = {{r_obs}}$ liegt weit ausserhalb der
+Nullverteilung, die bei zufaelliger Ressortzuordnung um ${{r_null_mean}} \pm {{r_null_std}}$
+streut. Der Abstand betraegt rund {{r_sigma}} Standardabweichungen, $p = {{p_assort}}$ ist
+der kleinste Wert, den {{perm_b}} Permutationen aufloesen koennen.
 
 Inhaltlich: Wer bei *20 Minuten* gemeinsam publiziert, tut das ganz
 ueberwiegend innerhalb des eigenen Ressorts. Die Ressortgrenze ist damit keine
 blosse Organigramm-Linie, sondern eine empirisch messbare Grenze der
-tatsaechlichen Zusammenarbeit. $r = 0.36$ heisst zugleich, dass die Silos nicht
+tatsaechlichen Zusammenarbeit. $r = {{r_obs_2dp}}$ heisst zugleich, dass die Silos nicht
 geschlossen sind: ein Wert nahe 1 waere vollstaendige Abschottung. Es gibt also
 substanzielle ressortuebergreifende Zusammenarbeit, sie ist nur deutlich
 seltener als ressortinterne. Abbildung 7 zeigt diese Silos unmittelbar: die Ressorts bilden im Layout
@@ -342,6 +431,15 @@ p_txt_jsd = (f'p < {p_floor_jsd:.4f}' if p_val_jsd <= p_floor_jsd
 print(f'Gradtreues Nullmodell (Maslov-Sneppen): Mean JSD_null = {rewired_mean_jsd.mean():.4f}')
 print(f'Empirischer p-Wert (geringere JSD als bei zufälligem Matching): p = {p_val_jsd:.5f}')
 
+fact('jsd_obs', mean_jsd_obs, '.4f')
+fact('jsd_obs_2dp', mean_jsd_obs, '.2f')
+fact('jsd_null', rewired_mean_jsd.mean(), '.4f')
+print(f'Verhaeltnis Nullmodell zu Beobachtung: Faktor '
+      f'{rewired_mean_jsd.mean() / mean_jsd_obs:.2f}')
+fact('jsd_ratio', rewired_mean_jsd.mean() / mean_jsd_obs, '.2f')
+fact('p_jsd', p_val_jsd, '.4f')
+fact('rewire_b', B_REWIRE, ',d')
+
 plt.figure(figsize=(9, 5))
 plt.hist(rewired_mean_jsd, bins=30, color='skyblue', edgecolor='black', alpha=0.7, density=True, label='Gradtreues Nullmodell (Rewired Edges)')
 plt.axvline(mean_jsd_obs, color='darkblue', linestyle='--', linewidth=2.5, label=f'Beobachtete Mean JSD = {mean_jsd_obs:.3f} ({p_txt_jsd})')
@@ -355,10 +453,11 @@ plt.show()
 """))
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 3, Divergenz gegen ein gradtreues Nullmodell).**
-Die mittlere Ressort-Divergenz entlang bestehender Kanten betraegt $0.3371$. Im
+Die mittlere Ressort-Divergenz entlang bestehender Kanten betraegt ${{jsd_obs}}$. Im
 gradtreuen Nullmodell, das die Gradsequenz exakt erhaelt und nur die
-Verknuepfung neu wuerfelt, liegt sie bei $0.6258$, also fast doppelt so hoch
-($p = 0.0020$, die Aufloesungsgrenze bei 500 Rewirings).
+Verknuepfung neu wuerfelt, liegt sie bei ${{jsd_null}}$, also um den Faktor
+{{jsd_ratio}} hoeher
+($p = {{p_jsd}}$, die Aufloesungsgrenze bei {{rewire_b}} Rewirings).
 
 Das ist der schaerfere der beiden Homophilie-Tests. Test 1A haette auch dann ein
 Ergebnis geliefert, wenn hochaktive Autor:innen einfach mehr Kanten haben. Hier
@@ -366,7 +465,7 @@ bleibt die Gradsequenz unveraendert, der Unterschied kann also nicht aus der
 Aktivitaetsverteilung stammen. Journalist:innen waehlen ihre Koautor:innen
 gezielt nach thematischer Naehe, nicht bloss nach Verfuegbarkeit.
 
-Die verbleibende Divergenz von $0.34$ ist dabei nicht null: es existiert ein
+Die verbleibende Divergenz von ${{jsd_obs_2dp}}$ ist dabei nicht null: es existiert ein
 messbarer Anteil bewusst interdisziplinaerer Zusammenarbeit. Ob sich dieser
 auch in der Leserresonanz niederschlaegt, prueft 2.5.
 """))
@@ -411,6 +510,11 @@ print(f\"\\nQAP 2: Kollaborationsgewicht ~ Ressort-Divergenz (JSD)\")
 print(f\"  r = {qap_weight_jsd['r_observed']:.4f}, p = {qap_weight_jsd['p_value']:.5f} \"
       f\"(Nullverteilung: {qap_weight_jsd['null_mean']:.4f} +/- {qap_weight_jsd['null_std']:.4f})\")
 
+fact('qap_r_ressort', qap_weight_ressort['r_observed'], '.4f')
+fact('qap_r_jsd', qap_weight_jsd['r_observed'], '.4f')
+fact('qap_perm', B_QAP, ',d')
+fact('qap_gcc_n', G_gcc_collab.number_of_nodes(), ',d')
+
 # Visualisierung der QAP-Nullverteilung
 fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
 for ax, res, lbl in [
@@ -437,7 +541,11 @@ cells.append(nbf.v4.new_markdown_cell('''**Interpretation (Abbildung 4, Test 1C:
 aus Test 1A auf dyadischer Ebene und mit einem strengeren Nullmodell: die
 gemeinsame Permutation von Zeilen und Spalten erhaelt die Netzwerkstruktur, so
 dass die Signifikanz nicht aus der blossen Autokorrelation der Adjazenzmatrix
-stammt. Fuer die Redaktion bedeutet das: Kollaborationen entstehen nicht
+stammt. Auf der Riesenkomponente mit {{qap_gcc_n}} Autor:innen und
+{{qap_perm}} Permutationen korreliert das Kollaborationsgewicht mit
+$r = {{qap_r_ressort}}$ positiv mit Ressortgleichheit und mit
+$r = {{qap_r_jsd}}$ negativ mit der Ressort-Divergenz: beide Vorzeichen zeigen
+in dieselbe Richtung. Fuer die Redaktion bedeutet das: Kollaborationen entstehen nicht
 zufaellig ueber Ressortgrenzen hinweg, sondern folgen der redaktionellen
 Ressortstruktur. Der zweite Test prueft die Gegenrichtung, naemlich ob starke
 Kollaborationen mit inhaltlich aehnlicheren Profilen einhergehen.'''))
@@ -502,6 +610,15 @@ print(f'  Koeffizient mean_jsd     : {model.params["mean_jsd"]:.4f} '
 print()
 print(model.summary().tables[1])
 
+fact('ols_n', int(model.nobs), ',d')
+fact('ols_n_before', n_before, ',d')
+fact('ols_n_dropped', n_dropped, ',d')
+fact('ols_r2_pct', model.rsquared * 100, '.1f')
+fact('ols_adj_r2', model.rsquared_adj, '.4f')
+fact('ols_coef', model.params['mean_jsd'], '.4f')
+fact('ols_ci_lo', model.conf_int().loc['mean_jsd', 0], '.4f')
+fact('ols_ci_hi', model.conf_int().loc['mean_jsd', 1], '.4f')
+
 # Visualisierung
 plt.figure(figsize=(9, 5))
 sns.regplot(
@@ -519,11 +636,13 @@ plt.show()
 """))
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 5, thematische Breite und Leserresonanz).** Das
-Modell erklaert 35.5% der Varianz von $\log(1 + \text{Shares})$ ($N = 6'887$,
-adj. $R^2 = 0.353$), bei Kontrolle von Jahr, Ressort und Teamgroesse.
+Modell erklaert {{ols_r2_pct}}% der Varianz von $\log(1 + \\text{Shares})$ ($N = {{ols_n}}$
+von {{ols_n_before}} Mehrautoren-Artikeln, {{ols_n_dropped}} wegen fehlender Werte
+ausgeschlossen, adj. $R^2 = {{ols_adj_r2}}$), bei Kontrolle von Jahr, Ressort und
+Teamgroesse.
 
-Der Koeffizient von `mean_jsd` ist mit $0.61$ positiv und klar signifikant
-($p < 0.001$, 95%-KI $[0.45, 0.76]$). Artikel, deren Autor:innen aus
+Der Koeffizient von `mean_jsd` ist mit ${{ols_coef}}$ positiv und klar signifikant
+($p < 0.001$, 95%-KI $[{{ols_ci_lo}}, {{ols_ci_hi}}]$). Artikel, deren Autor:innen aus
 thematisch *unterschiedlichen* Ecken der Redaktion kommen, werden also im Mittel
 haeufiger geteilt. Da die JSD leave-one-out berechnet ist, stammt dieser
 Zusammenhang nicht aus dem Artikel selbst.
@@ -732,6 +851,14 @@ print(f'Beobachteter Bereich von Q:   {macro_df["modularity_mean"].min():.4f} '
 print(f'Beobachteter Bereich des groessten Community-Anteils: '
       f'{macro_df["largest_community_share"].min():.4f} bis {macro_df["largest_community_share"].max():.4f}')
 
+fact('gcc_ratio_min_pct', macro_df['gcc_ratio'].min() * 100, '.1f')
+fact('gcc_ratio_max_pct', macro_df['gcc_ratio'].max() * 100, '.1f')
+fact('macro_deg_min', macro_df['avg_degree'].min(), '.2f')
+fact('macro_deg_max', macro_df['avg_degree'].max(), '.2f')
+fact('macro_q_min', macro_df['modularity_mean'].min(), '.4f')
+fact('macro_q_max', macro_df['modularity_mean'].max(), '.4f')
+fact('vocab_size', int(macro_df['nodes'].iloc[0]), ',d')
+
 # Multi-panel Trajectory Plot
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
@@ -767,9 +894,10 @@ plt.show()
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 9 und Tabelle 3.1, makro-topologische Entwicklung).** Ueber alle
 fuenf Jahre bleibt die Struktur des Themennetzwerks bemerkenswert konstant: die
-Riesenkomponente umfasst durchgehend 98.7% bis 99.5% der 1'200 Begriffe, der
-mittlere Grad liegt zwischen 6.34 und 6.59, die Modularitaet zwischen 0.772 und
-0.790. Die Berichterstattung ist also in jedem Jahr aehnlich stark
+Riesenkomponente umfasst durchgehend {{gcc_ratio_min_pct}}% bis {{gcc_ratio_max_pct}}%
+der {{vocab_size}} Begriffe, der mittlere Grad liegt zwischen {{macro_deg_min}} und
+{{macro_deg_max}}, die Modularitaet zwischen {{macro_q_min}} und
+{{macro_q_max}}. Die Berichterstattung ist also in jedem Jahr aehnlich stark
 ausdifferenziert, unabhaengig davon, welche Themen dominieren.
 
 Das ist zunaechst ein Konstanzbefund, kein Wandelbefund: *was* berichtet wird,
@@ -828,6 +956,22 @@ for col, want_year, mode in [('C_D', 2020, 'max'), ('C_B', 2020, 'max'),
           f'-> {"stabil" if stable else "instabil"}'
           f'{", entspricht der Erwartung 2020" if consistent else ""}')
 
+_mean_k = sens_df.groupby('k')[['edges', 'C_D', 'Q', 'C_D_Ausschoepfung']].mean()
+fact('sens_edges_k5', _mean_k.loc[5, 'edges'], ',.0f')
+fact('sens_edges_k20', _mean_k.loc[20, 'edges'], ',.0f')
+fact('sens_q_k5', _mean_k.loc[5, 'Q'], '.3f')
+fact('sens_q_k20', _mean_k.loc[20, 'Q'], '.3f')
+fact('sens_cd_k5', _mean_k.loc[5, 'C_D'], '.4f')
+fact('sens_cd_k20', _mean_k.loc[20, 'C_D'], '.4f')
+fact('sens_bound_k5', sens_df[sens_df['k'] == 5]['C_D_max_moeglich'].iloc[0], '.4f')
+fact('sens_bound_k10', sens_df[sens_df['k'] == 10]['C_D_max_moeglich'].iloc[0], '.4f')
+fact('sens_bound_k20', sens_df[sens_df['k'] == 20]['C_D_max_moeglich'].iloc[0], '.4f')
+fact('sens_ausschoepf_min_pct', sens_df['C_D_Ausschoepfung'].min() * 100, '.0f')
+fact('sens_ausschoepf_max_pct', sens_df['C_D_Ausschoepfung'].max() * 100, '.0f')
+for _k in (5, 10, 20):
+    _sub = sens_df[sens_df['k'] == _k].set_index('year')
+    fact(f'sens_q2020_k{_k}', _sub.loc[2020, 'Q'], '.4f')
+
 fig, axes = plt.subplots(1, 4, figsize=(19, 4.3))
 for k_val, marker in zip([5, 10, 20], ['o', 's', '^']):
     sub = sens_df[sens_df['k'] == k_val]
@@ -852,13 +996,15 @@ cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 10, Sensiti
 Die Sensitivitaetsanalyse beantwortet zwei Fragen.
 
 *Wie stabil sind die Befunde?* Die absoluten Niveaus haengen erwartungsgemaess
-stark an $k$: von $k=5$ zu $k=20$ steigt die mittlere Kantenzahl von rund 1'654
-auf 8'735, $Q$ faellt von 0.908 auf 0.656, $C_D$ steigt von 0.0019 auf 0.0045.
+stark an $k$: von $k=5$ zu $k=20$ steigt die mittlere Kantenzahl von rund {{sens_edges_k5}}
+auf {{sens_edges_k20}}, $Q$ faellt von {{sens_q_k5}} auf {{sens_q_k20}},
+$C_D$ steigt von {{sens_cd_k5}} auf {{sens_cd_k20}}.
 Entscheidend ist deshalb nicht das Niveau, sondern ob die *Jahres-Extrema*
 ueber $k$ gleich bleiben. Die Auswertung zeigt ein klares Muster:
 
 - **$Q$ hat sein Minimum bei allen drei $k$-Werten im Jahr 2020**
-  (0.8952 bei $k=5$, 0.7702 bei $k=10$, 0.6427 bei $k=20$). Das ist ein
+  ({{sens_q2020_k5}} bei $k=5$, {{sens_q2020_k10}} bei $k=10$, {{sens_q2020_k20}}
+  bei $k=20$). Das ist ein
   robuster Befund und stuetzt genau die Richtung, die der Meilenstein fuer die
   Modularitaet vorhergesagt hat.
 - **$C_D$ hat sein Maximum bei allen drei $k$-Werten 2021**, also stabil, aber
@@ -870,14 +1016,15 @@ ueber $k$ gleich bleiben. Die Auswertung zeigt ein klares Muster:
 
 *Wie viel Spielraum laesst das Design?* Die Spalte `C_D_max_moeglich` zeigt,
 dass die Mutual-$k$-NN-Sparsifizierung den Knotengrad bei $k$ deckelt und damit
-auch $C_D$ nach oben begrenzt: bei $n = 1200$ liegt die Obergrenze fuer $k=5$
-bei $0.0042$, fuer $k=10$ bei $0.0083$, fuer $k=20$ bei $0.0167$. Ausgeschoepft
-werden davon nur 26% bis 46%. $C_D$ kann in diesem Design also gar nicht stark
+auch $C_D$ nach oben begrenzt: bei $n = {{vocab_size}}$ liegt die Obergrenze fuer $k=5$
+bei ${{sens_bound_k5}}$, fuer $k=10$ bei ${{sens_bound_k10}}$, fuer $k=20$ bei
+${{sens_bound_k20}}$. Ausgeschoepft werden davon nur {{sens_ausschoepf_min_pct}}%
+bis {{sens_ausschoepf_max_pct}}%. $C_D$ kann in diesem Design also gar nicht stark
 variieren, unabhaengig davon, was in der Berichterstattung passiert.
 
 *Hinweis zur Vergleichbarkeit mit 3.1:* Dort wird $Q$ als Mittel ueber zehn
-Louvain-Seeds ausgewiesen (2020: 0.7720), hier aus Laufzeitgruenden als
-Einzellauf mit festem Seed 0 (2020: 0.7702). Die Differenz von 0.002 liegt
+Louvain-Seeds ausgewiesen (2020: {{macro_q_min}}), hier aus Laufzeitgruenden als
+Einzellauf mit festem Seed 0 (2020: {{sens_q2020_k10}}). Die Differenz von 0.002 liegt
 innerhalb der in 3.1 berichteten Streuung von $\\pm 0.0014$ und ist kein
 Widerspruch.
 
@@ -991,6 +1138,12 @@ print(covid_df.round(4).to_string(index=False))
 print(f"\\nRueckgang des Artikel-Anteils 2020 -> 2024: "
       f"{covid_df.iloc[0]['anteil_artikel']:.2%} auf {covid_df.iloc[-1]['anteil_artikel']:.2%} "
       f"(Faktor {covid_df.iloc[0]['anteil_artikel'] / max(covid_df.iloc[-1]['anteil_artikel'], 1e-9):.1f})")
+
+fact('covid_art_2020_pct', covid_df.iloc[0]['anteil_artikel'] * 100, '.2f')
+fact('covid_art_2024_pct', covid_df.iloc[-1]['anteil_artikel'] * 100, '.2f')
+fact('covid_factor', covid_df.iloc[0]['anteil_artikel'] / max(covid_df.iloc[-1]['anteil_artikel'], 1e-9), '.0f')
+fact('covid_w_2020_pct', covid_df.iloc[0]['anteil_kantengewicht'] * 100, '.2f')
+fact('covid_w_2024_pct', covid_df.iloc[-1]['anteil_kantengewicht'] * 100, '.2f')
 """))
 
 cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Hypothese 2: die Modularitaets-Haelfte ist robust bestaetigt, die Zentralisierungs-Haelfte nicht).**
@@ -1023,10 +1176,10 @@ Verlust genau jener Varianz, auf die die Zentralisierungs-Haelfte von
 Hypothese 2 zielte.
 
 **Wo der Pandemie-Effekt unmittelbar sichtbar wird.** Nicht in den globalen
-Topologiemassen, sondern in der Praesenz des Vokabulars selbst: 19.45% aller
-Artikel des Jahres 2020 tragen Pandemie-Begriffe, 2024 sind es 1.21%, ein
-Rueckgang um den Faktor 16. Der Anteil des Kantengewichts an diesen Begriffen
-faellt von 2.00% auf 1.34%. Zusammen mit dem robusten $Q$-Minimum ergibt das
+Topologiemassen, sondern in der Praesenz des Vokabulars selbst: {{covid_art_2020_pct}}% aller
+Artikel des Jahres 2020 tragen Pandemie-Begriffe, 2024 sind es {{covid_art_2024_pct}}%, ein
+Rueckgang um den Faktor {{covid_factor}}. Der Anteil des Kantengewichts an diesen Begriffen
+faellt von {{covid_w_2020_pct}}% auf {{covid_w_2024_pct}}%. Zusammen mit dem robusten $Q$-Minimum ergibt das
 ein konsistentes Bild: 2020 war thematisch stark konzentriert und strukturell
 schlecht separierbar.
 
@@ -1303,7 +1456,7 @@ $[0.0387, 0.0811]$ schliesst die Null aus. Praktisch heisst das: Wer neue
 Zusammenarbeit anstossen will, sollte an bestehenden Teamkonstellationen
 ansetzen und nicht bei den produktivsten Einzelpersonen.
 
-Zwei Einschraenkungen. Erstens ist $\text{Precision@20} = 0.55$ im letzten
+Zwei Einschraenkungen. Erstens ist $\\text{Precision@20} = 0.55$ im letzten
 Fenster zwar hoch, faellt bei $k = 100$ aber auf $0.37$: die Vorhersage
 funktioniert fuer die naheliegendsten Paare gut und wird danach schnell
 schwaecher. Zweitens variiert die Rangfolge zwischen den Fenstern; im ersten
@@ -1387,13 +1540,55 @@ print(f'Mittlere Reichweite je Strategie und p ({N_SIM} Simulationen, '
       f'Startmenge {SEED_SET_SIZE}, n={G_collab.number_of_nodes()}):')
 print(pivot.round(1).to_string())
 
-print('\\nSiegerstrategie je p:')
+pivot_sd = sweep_df.pivot(index='p', columns='Strategie', values='Std')
+print('\\nStandardabweichung der Reichweite ueber die Simulationen (gleiche Anordnung):')
+print(pivot_sd.round(1).to_string())
+
+# Eine Rangfolge ohne Streuungsmass laedt dazu ein, einen "Sieger" zu lesen, wo
+# nur Rauschen ist. Verglichen werden deshalb nur die drei Strategien aus
+# derselben Grundgesamtheit; die naive Ziehung wird separat ausgewiesen.
+COMPARABLE = ['Burt-Broker', 'Hubs (max. Grad)',
+              'Zufallsauswahl (vergleichbare Grundgesamtheit)']
+print(f'\\nBeste und schlechteste der {len(COMPARABLE)} vergleichbaren Strategien je p,')
+print(f'mit 95%-KI des Mittelwerts (SE = Std / sqrt({N_SIM})) und z fuer die Differenz.')
+print('|z| < 1.96 heisst: der Abstand ist von der Simulationsstreuung nicht zu trennen.')
+sweep_stats = []
 for p_val in P_GRID:
-    sub = sweep_df[sweep_df['p'] == p_val].sort_values('Mittlere Reichweite', ascending=False)
-    lead = sub.iloc[0]['Mittlere Reichweite'] - sub.iloc[-1]['Mittlere Reichweite']
-    print(f'  p = {p_val:<5} {sub.iloc[0]["Strategie"]:<18} '
-          f'({sub.iloc[0]["Mittlere Reichweite"]:.1f} Personen, '
-          f'Vorsprung auf die letzte Strategie: {lead:.1f})')
+    sub = (sweep_df[(sweep_df['p'] == p_val) & (sweep_df['Strategie'].isin(COMPARABLE))]
+           .sort_values(['Mittlere Reichweite', 'Strategie'], ascending=[False, True]))
+    best, worst = sub.iloc[0], sub.iloc[-1]
+    se_b = best['Std'] / np.sqrt(N_SIM)
+    se_w = worst['Std'] / np.sqrt(N_SIM)
+    diff = best['Mittlere Reichweite'] - worst['Mittlere Reichweite']
+    z = diff / np.sqrt(se_b ** 2 + se_w ** 2)
+    rel = diff / sub['Mittlere Reichweite'].mean() * 100
+    sweep_stats.append({'p': p_val, 'beste': best['Strategie'],
+                        'schlechteste': worst['Strategie'], 'Differenz': diff,
+                        'Differenz_Prozent': rel, 'z': z})
+    print(f'  p = {p_val}')
+    print(f'      beste        : {best["Strategie"]:<46} '
+          f'{best["Mittlere Reichweite"]:6.1f} +/- {1.96 * se_b:.1f}')
+    print(f'      schlechteste : {worst["Strategie"]:<46} '
+          f'{worst["Mittlere Reichweite"]:6.1f} +/- {1.96 * se_w:.1f}')
+    print(f'      Differenz {diff:.1f} Personen ({rel:.1f}% des Mittels), z = {z:.2f} -> '
+          + ('statistisch trennscharf' if abs(z) >= 1.96
+             else 'nicht von Rauschen zu unterscheiden'))
+sweep_stats_df = pd.DataFrame(sweep_stats)
+
+ref_p = P_GRID[0]
+ref = sweep_df[sweep_df['p'] == ref_p].set_index('Strategie')['Mittlere Reichweite']
+lead_counts = sweep_stats_df['beste'].value_counts()
+fact('dif_p_ref', ref_p)
+fact('dif_n_sim', N_SIM)
+fact('dif_hubs_ref', ref['Hubs (max. Grad)'], '.1f')
+fact('dif_burt_ref', ref['Burt-Broker'], '.1f')
+fact('dif_rand_ref', ref['Zufallsauswahl (vergleichbare Grundgesamtheit)'], '.1f')
+fact('dif_naive_ref', ref['Zufallsauswahl (naiv, alle Knoten)'], '.1f')
+fact('dif_n_p', len(P_GRID))
+fact('dif_max_rel', sweep_stats_df['Differenz_Prozent'].max(), '.1f')
+fact('dif_n_sig', int((sweep_stats_df['z'].abs() >= 1.96).sum()))
+fact('dif_lead_top', lead_counts.index[0])
+fact('dif_lead_top_n', int(lead_counts.iloc[0]))
 
 gcc_size = max(len(c) for c in nx.connected_components(G_collab))
 print(f'\\nGroesse der Giant Component: {gcc_size} von {G_collab.number_of_nodes()} '
@@ -1426,12 +1621,26 @@ cells.append(nbf.v4.new_markdown_cell("""**Interpretation (Abbildung 14, Diffusi
 Negativbefund, und zwar ein belastbarer: **die Wahl der Startmenge spielt in
 diesem Netzwerk kaum eine Rolle.**
 
-Bei $p = 0.02$ erreichen die Hubs im Mittel 89.0 Personen, die Burt-Broker
-88.4 und eine Zufallsauswahl aus derselben Grundgesamtheit 87.3. Der Vorsprung
-der gezielten Auswahl liegt damit unter 2%, und die Spannweite ueber alle vier
-Varianten betraegt weniger als 2% des Mittelwerts. Auch bei groesserem $p$
-bleiben die Unterschiede in dieser Groessenordnung, waehrend alle Strategien
-gegen die Groesse der Riesenkomponente konvergieren.
+Bei $p = {{dif_p_ref}}$ erreichen die Hubs im Mittel {{dif_hubs_ref}} Personen, die
+Burt-Broker {{dif_burt_ref}} und eine Zufallsauswahl aus derselben
+Grundgesamtheit {{dif_rand_ref}}; die naive Ziehung ueber alle Knoten kommt auf
+{{dif_naive_ref}}. Ueber alle {{dif_n_p}} getesteten $p$-Werte
+uebersteigt der Abstand zwischen bester und schlechtester vergleichbarer
+Strategie nie {{dif_max_rel}}% des Mittelwerts, waehrend alle Strategien gegen
+die Groesse der Riesenkomponente konvergieren.
+
+**Klein heisst nicht automatisch null, deshalb steht die Streuung mit in der
+Ausgabe.** Jede Zelle beruht auf {{dif_n_sim}} Simulationen, der Standardfehler
+des Mittelwerts ist entsprechend klein, und bei {{dif_n_sig}} von {{dif_n_p}}
+$p$-Werten liegt $|z|$ fuer die Differenz zwischen bester und schlechtester
+Strategie ueber 1.96. Ein blosses Ranking der Mittelwerte wuerde das
+verschweigen und zugleich einen "Sieger" suggerieren, den die Daten nicht
+hergeben. Denn die Richtung ist das eigentliche Argument: am haeufigsten fuehrt
+{{dif_lead_top}}, naemlich bei {{dif_lead_top_n}} von {{dif_n_p}} $p$-Werten.
+Die gezielte Auswahl nach Brokerage oder Grad schlaegt die Zufallsauswahl also
+nicht systematisch. Ein Unterschied von wenigen Prozent, dessen Vorzeichen ueber
+$p$ wechselt, traegt keine Handlungsempfehlung, auch wenn er an einzelnen
+Stellen statistisch trennscharf ist.
 
 **Warum die naive Zufallsauswahl bei hohem $p$ sogar vorn liegt.** Sie zieht
 ihre Startknoten aus allen Autor:innen, also auch aus den kleinen Komponenten
@@ -1463,15 +1672,24 @@ Grundgesamtheiten zeigt, dass real kein Vorsprung besteht. Siehe Lessons
 Learned.
 """))
 
+cells.append(nbf.v4.new_code_cell("""# Zahlen-Registry sichern
+# scripts/run_notebook.py liest diese Datei nach der Ausfuehrung und ersetzt
+# damit die {{schluessel}}-Platzhalter in den Interpretationstexten. Der
+# Fliesstext kann so nicht von den berechneten Werten abweichen.
+with open('data/notebook_facts.json', 'w', encoding='utf-8') as f:
+    json.dump(NOTEBOOK_FACTS, f, indent=2, ensure_ascii=False, sort_keys=True)
+print(f'{len(NOTEBOOK_FACTS)} Kennzahlen nach data/notebook_facts.json geschrieben.')
+"""))
+
 cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Akademische Deklarationen
 
 ### 6.1 Evidence Map (Zuordnung zu den Bewertungskriterien)
 
 | Kriterium | Gewicht | Umsetzung im Projekt | Fundstelle |
 | :--- | :---: | :--- | :--- |
-| **1. Explorative Datenanalyse & Quelldaten-Validierung** | 1 | Stratifizierte Live-Validierung ($n=60$) gegen 20min.ch mit 100% Erreichbarkeit, 100% Titel- und 98.3% Datumsübereinstimmung. Systematische Fehlwert-Analyse: 41.4% der Kommentarwerte fehlen und werden als `NaN` geführt statt als 0. Token-basierte Entitäts-Resolution entfernt 133 institutionelle Knoten (Agenturen, Desks). | `src/00_eda.qmd`, `src/01_cleaning.qmd`, `data/ground_truth_validation.md`, `src/clean_dataset.py` |
+| **1. Explorative Datenanalyse & Quelldaten-Validierung** | 1 | Stratifizierte Live-Validierung ($n=60$) gegen 20min.ch mit 100% Erreichbarkeit, 100% Titel- und 98.3% Datumsübereinstimmung. Systematische Fehlwert-Analyse: 41.4% der Kommentarwerte fehlen und werden als `NaN` geführt statt als 0. Token-basierte Entitäts-Resolution entfernt 166 institutionelle Knoten (Agenturen, Desks, Content-Zulieferer); 781 statt 947 Autor:innen. | `src/00_eda.qmd`, `src/01_cleaning.qmd`, `data/ground_truth_validation.md`, `src/clean_dataset.py` |
 | **2. Vielfalt der Netzwerk-Analysen** | 2 | Two-Mode-Modellierung und Newman-Projektion (LE3), Louvain-Communities, Cliquen und k-Core (LE4), Zentralität und strukturelle Löcher nach Burt (LE5), Zentralisierung $C_D$ und $C_B$, Metriken und Connectivity (LE6), drei Hypothesentests inkl. QAP (LE7), rollierende Link-Prediction (LE8), Independent-Cascade-Diffusion (LE9). Zwei komplementäre Netzwerke plus Sensitivitätsanalyse über $k$. | Kapitel 2 bis 5 |
-| **3. Nachvollziehbarkeit & korrekte Metriken** | 2 | Drei Nullmodelle unterschiedlicher Strenge: Label-Permutation, gradtreues Maslov-Sneppen-Rewiring, QAP mit gemeinsamer Zeilen-/Spalten-Permutation. Leakage-freie Leave-One-Out-JSD, OLS mit $N$, $R^2$ und ausgewiesenen Fallausschlüssen, unbalancierte Link-Prediction mit Bootstrap-CI. Jede Analyse wird auf den Anwendungsfall bezogen interpretiert; die Grenzen des Designs werden in 3.2 und 3.4 offengelegt. 17 Unit-Tests. | 2.2 bis 2.6, 3.2, 3.4, Kap. 4 und 5; `python src/network_models.py` |
+| **3. Nachvollziehbarkeit & korrekte Metriken** | 2 | Drei Nullmodelle unterschiedlicher Strenge: Label-Permutation, gradtreues Maslov-Sneppen-Rewiring, QAP mit gemeinsamer Zeilen-/Spalten-Permutation. Leakage-freie Leave-One-Out-JSD, OLS mit $N$, $R^2$ und ausgewiesenen Fallausschlüssen, unbalancierte Link-Prediction mit Bootstrap-CI. Jede Analyse wird auf den Anwendungsfall bezogen interpretiert; die Grenzen des Designs werden in 3.2 und 3.4 offengelegt. 17 Unit-Tests. Alle Kennzahlen im Fliesstext werden zur Laufzeit aus den berechneten Werten eingesetzt und von `scripts/validate_notebook.py` gegen die Zellenausgaben geprüft. | 2.2 bis 2.6, 3.2, 3.4, Kap. 4 und 5; `python src/network_models.py` |
 | **4. Anschaulichkeit der Resultate** | 1 | 14 durchnummerierte 300-DPI-Abbildungen (Abb. 1 bis 14), davon vier Netzwerk-Renderings, alle inline im Notebook sichtbar und in der Interpretation namentlich referenziert, sowie drei `.gexf`-Exporte für Gephi. | `out_plots/`, `graphen/` |
 | **5. Ausblick** | 1 | Methodische Erweiterungen und explizit benannte, bewusst nicht abgedeckte Lernergebnisse. | 5.2 |
 
@@ -1495,11 +1713,11 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 ### 6.3 Lessons Learned
 
-1. **Entitäts-Resolution entscheidet über die Validität des ganzen Netzwerks.** Eine Filterung über exakte Zeichenkettenvergleiche reichte nicht aus. Zusammengesetzte Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` gelangten als vermeintliche Journalist:innen in den Graphen. `Agence France-Presse` mit 214 Artikeln lag sogar in der grössten Clique und blähte damit Kohäsions- und Zentralitätsmasse auf. Erst eine token-basierte Klassifikation entfernte 133 institutionelle Knoten. **Lehre:** Knoten-Identität ist keine Nebensache der Datenbereinigung, sondern bestimmt jedes nachgelagerte Mass.
+1. **Entitäts-Resolution entscheidet über die Validität des ganzen Netzwerks.** Eine Filterung über exakte Zeichenkettenvergleiche reichte nicht aus. Zusammengesetzte Bylines wie `SDA fss`, `Rat Dpa` oder `Agence France-Presse` gelangten als vermeintliche Journalist:innen in den Graphen. `Agence France-Presse` mit 214 Artikeln lag sogar in der grössten Clique und blähte damit Kohäsions- und Zentralitätsmasse auf. Erst eine token-basierte Klassifikation aus Exakt-Set, Tokens und Substrings entfernte 166 institutionelle Knoten, aus 947 Autor:innen wurden 781. **Lehre:** Knoten-Identität ist keine Nebensache der Datenbereinigung, sondern bestimmt jedes nachgelagerte Mass.
 
 2. **Fehlende Werte dürfen nicht zu Nullen werden.** 41.4% der Kommentarwerte fehlen, weil die Kommentarfunktion deaktiviert oder nicht erfasst war. Als 0 kodiert hätten sie „kein Interesse“ statt „keine Messung“ bedeutet und die Regression systematisch verzerrt.
 
-3. **Nullmodelle müssen zur Datenstruktur passen.** In der Link-Prediction landeten Trainingskanten in der Negativmenge, weil Kantentupel unsortiert verglichen wurden. Beim QAP-Test korrelierten zunächst zwei Matrizen, die beide für nicht benachbarte Paare null sind, wodurch teilweise blosse Kanten-Kopräsenz gemessen wurde. Nach Korrektur auf eine über alle Dyaden definierte JSD-Matrix kehrte sich das Vorzeichen von $+0.148$ auf $-0.140$ um, was der Homophilie-Hypothese entspricht. **Lehre:** Ein plausibel aussehendes Ergebnis ist kein Korrektheitsnachweis. Beide Fehler wurden erst durch systematisches Code-Review und Unit-Tests sichtbar.
+3. **Nullmodelle müssen zur Datenstruktur passen.** In der Link-Prediction landeten Trainingskanten in der Negativmenge, weil Kantentupel unsortiert verglichen wurden. Beim QAP-Test korrelierten zunächst zwei Matrizen, die beide für nicht benachbarte Paare null sind, wodurch teilweise blosse Kanten-Kopräsenz gemessen wurde. Nach Korrektur auf eine über alle Dyaden definierte JSD-Matrix kehrte sich das Vorzeichen von $+0.148$ auf ${{qap_r_jsd}}$ um, was der Homophilie-Hypothese entspricht. **Lehre:** Ein plausibel aussehendes Ergebnis ist kein Korrektheitsnachweis. Beide Fehler wurden erst durch systematisches Code-Review und Unit-Tests sichtbar.
 
 4. **Dichte-Vergleiche über Zeit sind ohne Normierung wertlos.** Der direkte Vergleich von Netzwerkdichten über Jahre mit unterschiedlicher Artikelzahl führt in die Irre. Ein fixiertes globales Vokabular, Mutual-$k$-NN-Sparsifizierung und normierte Zentralisierung waren notwendig, um überhaupt vergleichbare Topologien zu erhalten.
 
@@ -1507,13 +1725,15 @@ cells.append(nbf.v4.new_markdown_cell("""## 6. Gesamtsynthese, Evidence Map & Ak
 
 6. **Ein zweites Augenpaar findet, was man selbst nicht sieht.** Ein systematisches Review deckte auf, dass eine Methodikzusage (Sensitivitätsprüfung über $k$) im Text stand, aber nie ausgeführt wurde, und dass die als „Burt“ bezeichnete Kennzahl gar keine Burt-Grösse war, sondern ein Verhältnis aus Betweenness und Grad. Beides ist jetzt implementiert bzw. korrigiert. **Lehre:** Formulierungen im Bericht müssen gegen den ausgeführten Code geprüft werden, nicht gegen die Absicht.
 
-7. **Normierungen sind Annahmen und müssen als solche geprüft werden.** In der ersten Fassung der Diffusionssimulation wurde die Übertragungswahrscheinlichkeit am **Maximalgewicht** normiert. Da das stärkste Autorenpaar ein Gewicht von 103 hat, der Median aber 1.0, lag die effektive Wahrscheinlichkeit an einer typischen Kante rund 50-fach unter dem angegebenen $p$; 94.7% aller Kanten blieben unter 0.01. Jede Kaskade erstickte dadurch von selbst, und der scheinbare Befund „Hubs schlagen Broker“ war ein Artefakt. Nach Normierung am Median und einem Sweep über $p$ zeigt sich das Gegenteil: bei kleinem $p$ gewinnen die Broker deutlich, bei grossem $p$ wird die Startmenge irrelevant. Dieselbe Fehlerklasse trat zuvor beim QAP-Test auf, wo eine über alle Dyaden statt nur über Kanten definierte Matrix das Vorzeichen umkehrte. **Lehre:** Eine Normierung, die niemand hinterfragt, produziert plausibel aussehende Zahlen. Für jede Skalierung ist zu prüfen, was der Parameter am *typischen* Datenpunkt bedeutet, nicht am extremsten.
+7. **Normierungen sind Annahmen und müssen als solche geprüft werden.** In der ersten Fassung der Diffusionssimulation wurde die Übertragungswahrscheinlichkeit am **Maximalgewicht** normiert. Da das stärkste Autorenpaar ein Gewicht von 103 hat, der Median aber 1.0, lag die effektive Wahrscheinlichkeit an einer typischen Kante rund 50-fach unter dem angegebenen $p$; 94.7% aller Kanten blieben unter 0.01. Jede Kaskade erstickte dadurch von selbst, und der scheinbare Befund „Hubs schlagen Broker“ war ein Artefakt. Nach Normierung am Median und einem Sweep über $p$ verschwand der Effekt vollständig, statt sich umzukehren: über den gesamten $p$-Bereich liegen die Strategien innerhalb weniger Prozent, und die Zufallsauswahl führt häufiger als die Broker (siehe 8 und Kapitel 5). Dieselbe Fehlerklasse trat zuvor beim QAP-Test auf, wo eine über alle Dyaden statt nur über Kanten definierte Matrix das Vorzeichen umkehrte. **Lehre:** Eine Normierung, die niemand hinterfragt, produziert plausibel aussehende Zahlen. Für jede Skalierung ist zu prüfen, was der Parameter am *typischen* Datenpunkt bedeutet, nicht am extremsten.
 
 8. **Eine Baseline muss aus derselben Grundgesamtheit stammen wie die getesteten Strategien.** Nach der Korrektur der Normierung schien die Diffusion über Burt-Broker das 2.5-fache einer Zufallsauswahl zu erreichen. Auch das war ein Artefakt: die Broker- und Hub-Startmengen stammten aus einer aktivitätsgefilterten Grundgesamtheit (Grad $\geq 5$, $\geq 10$ Artikel), die Zufallsauswahl dagegen aus allen Knoten, von denen rund ein Drittel isoliert ist und konstruktionsbedingt nichts verbreiten kann. Bei gleicher Grundgesamtheit schrumpft der Vorsprung auf unter 2%. **Lehre:** Zwei Korrekturen in derselben Analyse hintereinander sind ein Warnsignal. Wer eine Kennzahl repariert, sollte im selben Schritt prüfen, ob der Vergleich, in dem sie steht, überhaupt fair ist.
 
 9. **Ein fixierter Seed garantiert noch keine Reproduzierbarkeit.** Zwei aufeinanderfolgende Läufe desselben Notebooks auf identischen Daten lieferten unterschiedliche Zahlen, obwohl überall `seed=42` gesetzt war. Ursache war die Iteration über **Mengen**: Python-Sets werden in Hash-Reihenfolge durchlaufen, und diese hängt von `PYTHONHASHSEED` ab, das pro Prozess variiert. Betroffen waren die Kandidatenreihenfolge der Link-Prediction (und damit Zufallsbasislinie, Precision@k-Tie-Break und Bootstrap-KI), die Startmengen-Iteration der Diffusion, die Knotenreihenfolge jedes aus einer Menge gebildeten Teilgraphen sowie, über die Summationsreihenfolge, die letzten Bits des Adamic-Adar-Scores. Zusätzlich war das Maslov-Sneppen-Rewiring ungeseedet, weil networkx dafür das `random`-Modul und nicht NumPy verwendet. Nach Sortierung aller Mengen-Iterationen, expliziter Seed-Übergabe und Rundung der Scores sind zwei Läufe byte-identisch. **Lehre:** Reproduzierbarkeit ist zu *prüfen*, nicht anzunehmen. Der Test ist billig: zweimal laufen lassen und die Ausgaben vergleichen.
 
-10. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
+10. **Eine Zahl im Fliesstext ist eine Kopie und veraltet wie jede Kopie.** Drei Review-Runden hintereinander endeten mit demselben Muster: die Korrektur am Code war richtig, aber die Interpretationstexte behielten die Zahlen des vorherigen Laufs. In zwei Fällen widersprach ein Absatz der Ausgabe der Zelle unmittelbar darüber. Ein Text zu korrigieren behebt den Einzelfall, nicht die Ursache. Deshalb enthalten die Interpretationszellen jetzt Platzhalter statt Zahlen: jede Kennzahl läuft im Notebook durch `fact()`, wird nach `data/notebook_facts.json` geschrieben und erst nach der Ausführung eingesetzt. `scripts/validate_notebook.py` bricht zusätzlich ab, sobald eine Zahl im Text in keiner Zellenausgabe vorkommt. **Lehre:** Wenn derselbe Fehler dreimal auftritt, ist nicht der Fehler das Problem, sondern das Verfahren, das ihn zulässt.
+
+11. **Was wir künftig anders machen würden.** Unit-Tests für die Graphkonstruktion von Anfang an statt nachträglich, und ein Manifest mit Hashes für Roh- **und** abgeleitete Daten ab dem ersten Tag, damit Reproduzierbarkeit nicht rekonstruiert werden muss.
 
 ---
 

@@ -39,6 +39,7 @@ LAYOUT = [
     ('data/20min_cleaned_post2020.parquet', 'Rohdaten/20min_cleaned_post2020.parquet'),
     ('data/manifest.json', 'Rohdaten/manifest.json'),
     ('data/data_dictionary.json', 'Rohdaten/data_dictionary.json'),
+    ('data/notebook_facts.json', 'Rohdaten/notebook_facts.json'),
     ('data/ground_truth_validation.md', 'Rohdaten/ground_truth_validation.md'),
     ('data/ground_truth_validation.json', 'Rohdaten/ground_truth_validation.json'),
     ('graphen', 'Graphen'),
