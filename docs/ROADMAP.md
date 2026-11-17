@@ -48,18 +48,27 @@ Grundlagen dieser Roadmap:
 
 | Bereich | Stand |
 |---|---|
-| URL-Liste | ✅ `data/20min_artikel_sortiert.csv`, 449'190 Artikel, 01.10.2003 bis 25.09.2025 (`get_data.py`) |
-| Scraper / Kandidatenschicht (F01) | ✅ implementiert in `data_extraction/` (SQLite, Wiederaufnahme, spaCy NER + Noun-Chunks). **Noch nie gegen 20min.ch gelaufen.** |
-| Umgebung | 🟡 `.venv` vorhanden, aber **`de_core_news_lg` nicht installiert**; `networkx`, `pandas`, `matplotlib` fehlen in `requirements.txt` |
-| Meilenstein-Dokument | 🔴 **nicht eingereicht** (war für Ende September geplant) |
-| Pilotlauf, Vollcrawl | ⬜ offen |
-| Keyphrase-Normalisierung (Lemma, Alias, Stoppliste, Ranking) | ⬜ offen, kein Code |
-| EDA, Netzwerk, Analysen, Präsentation | ⬜ offen, `src/` ist leer |
-| KI-Deklaration | ⬜ kein Prompt-Log im Repo |
+*Aktualisiert am 12.11.2026 abends.*
 
-**Was F01 heute liefert:** pro Artikel rohe Kandidaten (`phrase`, `label` ∈ PER/ORG/LOC/MISC/NOUN_CHUNK,
-`count`, `in_titel`, `in_lead`). Das sind **noch keine Keywords**: keine Lemmatisierung, keine Stoppwörter,
-kein Ranking. „die Mieter“ und „Mieter“ sind zwei Kandidaten. Die Keyword-Bildung ist Phase 3.
+| Bereich | Stand |
+|---|---|
+| URL-Liste | ✅ `data/20min_artikel_sortiert.csv`, 477'487 Artikel, 01.10.2003 bis 12.11.2026 (`get_data.py`) |
+| Parser | ✅ aktuelles Layout: Reaktionen aus `__NEXT_DATA__`, Autoren mit Kürzel/ID, Quellenkürzel, Textlänge, Format (Artikel/Ticker), Aktualisierung. Test 2020–2026: 698/700 erfolgreich |
+| Pilot | ✅ 1'000 Artikel 2003–2026 und 700 Artikel 2020–2026, Fehler analysiert und behoben |
+| Vollcrawl | 🟡 **läuft**: 166'212 Artikel 01.01.2020 bis 05.11.2026 (`data/input_ab_2020.csv`), ca. 11 h, ca. 4 GB |
+| Keywords (Lemma, Alias, Stoppliste, TF-IDF) | ✅ `data_extraction/keywords.py`, Top 8 pro Artikel + Ressort-Stufen |
+| Personen (Namen/Kürzel/ID zusammenführen) | ✅ `data_extraction/autoren.py` |
+| Analyse-Code | ✅ `src/daten.py`, `src/netzwerk.py`; Notebooks `src/01_eda`, `02_keyword_netz`, `03_autoren_netz`, an einer Test-DB mit 4'400 Artikeln geprüft |
+| Umgebung | ✅ `requirements.txt` vollständig |
+| Meilenstein-Dokument | 🟡 Entwurf `docs/Meilenstein.md`, **noch nicht eingereicht** |
+| KI-Deklaration | 🟡 `docs/KI-Deklaration.md` + Prompt-Log `docs/KI-Prompts.md` (`scripts/ki_prompts.py`); Lucas Teil und „Eigenleistung“ fehlen |
+| Interpretation, Präsentation | ⬜ offen, nach dem Vollcrawl |
+
+**Wichtige Befunde aus den Tests** (Details in `data_extraction/README.md` und `src/01_eda.ipynb`):
+
+- **Reaktionen erst ab Juni 2020** gemessen. Vorher liefert die Quelle 0 Likes/Shares und keine Kommentare, deshalb gelten sie als fehlend (`daten.REAKTIONEN_AB`).
+- `views` ist unplausibel und wird nicht verwendet. Liveticker verzerren die Reaktionen.
+- 2020 stehen in der Byline fast nur Kürzel. Auf der Test-DB ist gut die Hälfte aufgelöst, auf dem Vollbestand werden es mehr.
 
 ---
 
@@ -68,7 +77,7 @@ kein Ranking. „die Mieter“ und „Mieter“ sind zwei Kandidaten. Die Keywor
 | Nr | Frage | Empfehlung | Warum jetzt |
 |---|---|---|---|
 | E-A | **Abgabetermin bestätigen.** Die PDF nennt *Fr 31.5.2026* (offensichtlich Vorlage aus dem Frühlingssemester), der alte Plan *So 03.01.2027*. | Beim Dozenten im Gruppenchat bestätigen lassen | Davon hängt der ganze Zeitplan unten ab |
-| E-B | **Vollcrawl oder Stichprobe?** Vollcrawl ≈ 10 h Laufzeit, ≈ 9 GB Kandidatenschicht. | **Geschichtete Stichprobe**, z. B. 4'000–5'000 Artikel pro Jahr 2010–2025 (≈ 70k). Reicht für 16 stabile Jahresnetze, Laufzeit < 2 h, < 1.5 GB. Vollcrawl nur, wenn Zeit bleibt | Restzeit ~7 Wochen; ein misslungener Vollcrawl kostet zu viel |
+| E-B | ~~Vollcrawl oder Stichprobe?~~ | ✅ **Entschieden:** Vollbestand ab 2020 (166k Artikel, 7 Jahresnetze). Grund: Reaktionen und Autoren-IDs gibt es erst im neuen CMS | — |
 | E-C | **Rohdaten persistieren?** Die Aufgabe empfiehlt es, der Plan (E8) verwirft den Volltext. | Kandidatenschicht + Titel/Lead/Ressort als „Rohdaten“ abgeben und in der Präsentation begründen (Urheberrecht 20min) | Muss vor dem Crawl feststehen |
 | E-D | Diffusion (Kap. 13) und Graphlets (Kap. 14) mitnehmen? | **Graphlets ja** (GDV/RGF-Distanz zum Vergleich der Jahresnetze, gut begründbar). Diffusion nur als klar deklarierte Simulation oder im Ausblick | „Vielfalt der Analysen“ ist stark gewichtet |
 | E-E | Projektionsgewicht | Newman's Weighted Projection (aus dem Skript) **und** Salton-Kosinus vergleichen, eine als Hauptvariante wählen | Kap. 3 explizit; Vergleich ist selbst eine LE3-Leistung |
@@ -83,65 +92,57 @@ Annahme: Abgabe **So 03.01.2027** (E-A). Ab heute bleiben **7 Wochen**.
 ### Phase 0 · Sofort (bis So 15.11.)
 
 - [ ] **Gruppennummer und Teams-Chat** „SAN-Projekt – Gruppe xx“ mit Dozent prüfen; E-A klären
-- [ ] **KI-Deklaration ab heute führen:** `docs/KI-Deklaration.md` mit Datum, Tool, Prompt, wofür verwendet. Rückwirkend alles erfassen, was noch auffindbar ist (u. a. die Commits mit Claude-Code-Mitarbeit)
-- [ ] **Meilenstein-Dokument schreiben und einreichen** (`docs/Meilenstein.md`, 1–2 Seiten): Titel, Team, Datenquelle und Rechtslage, Modell (Two-Mode Artikel–Keyphrase → One-Mode Keyphrase-Netz), geschätzte Grösse, die drei Hypothesen, bekannte Hindernisse (Layoutwechsel über 15 Jahre, fehlende Like/Share-Daten, Clique-Artefakt der Projektion)
-- [ ] Umgebung vervollständigen: `de_core_news_lg` installieren; `networkx`, `pandas`, `matplotlib`, `pyarrow` in `requirements.txt` aufnehmen
+- [x] KI-Deklaration angelegt: `docs/KI-Deklaration.md`, Prompt-Log `docs/KI-Prompts.md` (`python scripts/ki_prompts.py`)
+- [ ] KI-Deklaration: Lucas Prompts ergänzen, Abschnitt „Eigenleistung“ ausfüllen, nach jeder Sitzung Skript erneut ausführen
+- [ ] **Meilenstein einreichen:** Entwurf `docs/Meilenstein.md` prüfen, Gruppennummer ergänzen, abgeben
+- [x] Umgebung: `de_core_news_lg` installiert, `requirements.txt` vollständig
 
-### Phase 1 · Pilot und Crawl (16.–22.11.)
+### Phase 1 · Pilot und Crawl (bis 15.11.)
 
-- [ ] Geschichtete Pilotstichprobe ziehen (z. B. 100 Artikel pro Jahr 2010–2025) → `data/pilot_input.csv` (Script `scripts/sample_urls.py`)
-- [ ] Pilot laufen lassen: `python -m data_extraction.fetch_articles --db data/pilot.sqlite --input data/pilot_input.csv`
-- [ ] Pilot prüfen: Fehlerquote pro Jahr, `failed`/`skipped` nach Layout, 20 Artikel von Hand gegen 20min.ch vergleichen (Titel, Lead, Ressort, plausible Kandidaten)
-- [ ] Parser nachbessern, falls ältere Jahrgänge scheitern; **Modell und Kandidatenregeln danach einfrieren**
-- [ ] Hauptlauf mit der in E-B gewählten Stichprobe starten (über Nacht). Laufprotokoll: Modellversion, Durchsatz, Fehlerquote
+- [x] Pilot 1'000 Artikel 2003–2026 und 700 Artikel 2020–2026; Fehler kategorisiert und behoben
+- [x] Parser und Kandidatenregeln eingefroren (Branch `feat/extraction-quality`)
+- [ ] Vollcrawl 2020–2026 abschliessen, dann `--retry-failed`; Laufprotokoll (Start, Ende, done/failed, Python- und spaCy-Version) in der README
+- [ ] Nach dem Crawl: `python -m data_extraction.keywords --db data/articles.sqlite` und `python -m data_extraction.autoren --db data/articles.sqlite`
 
 **Fertig, wenn:** Abdeckung ≥ 95 % pro Jahr und die Fehlschläge kategorisiert sind.
 
-### Phase 2 · Keyphrase-Pipeline (23.–29.11.) — inhaltliches Herzstück
+### Phase 2 · Keywords und Personen (16.–22.11.)
 
-`src/keyphrases.py`, läuft beliebig oft auf der Kandidatenschicht, ohne Neu-Crawl:
+- [x] Keyword-Schicht `data_extraction/keywords.py`: Grundform, Alias-Auflösung, Stoppliste, TF-IDF mit Titel-/Lead-/Namensbonus, Top 8 pro Artikel
+- [x] Personen-Schicht `data_extraction/autoren.py`: Namen, Kürzel und IDs zu Personen zusammenführen
+- [ ] Auf dem Vollbestand nachjustieren: Stoppliste (Top 200 Keywords durchsehen), `--top-k`, `--min-df`
+- [ ] Qualitätscheck: 50 Artikel von Hand bewerten, Precision@8 angeben; Anteil aufgelöster Kürzel pro Jahr
 
-- [ ] **Normalisierung:** Artikel/Präpositionen am Rand entfernen, Kopfnomen lemmatisieren, Kleinschreibung bei Nicht-Entitäten
-- [ ] **Alias-Auflösung:** „Federer“ / „Roger Federer“ → eine Form (längste Form pro Entitätsklasse, nur bei eindeutigen Nachnamen)
-- [ ] **Stoppliste:** Redaktions-Boilerplate (`news`, `push`, `whatsapp`, …), Wochentage, Monate, Zahlwörter, generische Nominalphrasen
-- [ ] **Ranking:** pro Artikel die Top-k Phrasen (TF-IDF / c-TF-IDF, Bonus für `in_titel`/`in_lead`)
-- [ ] **Vokabular:** globales Vokabular über alle Jahre (z. B. Dokumentfrequenz ≥ 20), identisch für alle Jahresnetze
-- [ ] Qualitätscheck: 50–100 Artikel von Hand annotieren, Precision@k angeben; zeigen, dass die drei Altprobleme weg sind (getrennte Namensteile, Singular/Plural-Dubletten, Boilerplate in den Top-Begriffen)
+### Phase 3 · EDA (16.–29.11.)
 
-### Phase 3 · EDA (parallel, bis 29.11.)
+`src/01_eda.ipynb` (Code fertig, auf Test-DB geprüft):
 
-`src/01_eda.ipynb`:
+- [x] Abdeckung, fehlende Werte, Ressorts, Textlänge, Reaktionen, Aktualisierungen, Autoren, Agenturen, Keywords, Long Tail
+- [x] Vergleich mit der alten CSV, Massnahmentabelle
+- [ ] Auf dem Vollbestand ausführen und die Massnahmentabelle mit den echten Zahlen abgleichen
+- [ ] Plausibilitätsstichprobe `data/plausibilitaet_stichprobe.csv` (40 Artikel) von Hand gegen 20min.ch prüfen
+- [ ] Optional Sweetviz/ydata-profiling-Report
 
-- [ ] Artikel pro Jahr / Ressort, Missing Values (Lead, Ressort, Datum), Kandidaten pro Artikel
-- [ ] Häufigste Keyphrases gesamt und pro Jahr, Verteilung (Long Tail)
-- [ ] Plausibilitätscheck gegen die Quelle (Stichprobe n ≥ 30–60)
-- [ ] Vergleich alte (`data/20min_metadaten_keywords_clean.csv`) vs. neue Extraktion → Begründung, warum neu gebaut wurde
-- [ ] Optional Sweetviz/ydata-profiling-Report (wie in der Aufgabe empfohlen)
-- [ ] Festhalten: **welche Massnahmen** aus der EDA folgen (gehört explizit in die Präsentation)
+### Phase 4 · Netzwerkkonstruktion (23.11.–06.12.)
 
-### Phase 4 · Netzwerkkonstruktion (30.11.–06.12.)
+`src/netzwerk.py` + `src/02_keyword_netz.ipynb` + `src/03_autoren_netz.ipynb` (Code fertig, auf Test-DB geprüft):
 
-`src/network.py` + `src/02_netzwerk.ipynb`:
-
-- [ ] Two-Mode-Graph Artikel–Keyphrase (selbst analysieren: Grad-Verteilung beider Modi)
-- [ ] One-Mode-Projektion Keyphrase–Keyphrase; Gewichte: Kookkurrenz, Newman's Weighted Projection, Salton (E-E)
-- [ ] Sparsifizierung (Mindestgewicht oder Backbone / k-NN), Filterkriterien dokumentieren
-- [ ] Knotenattribute: dominantes Ressort, Dokumentfrequenz, Entitätsklasse, Erstauftrittsjahr
-- [ ] 16 Jahresnetze 2010–2025 + Gesamtnetz; Teilnetze je Ressort
-- [ ] Export `graphen/*.gexf` + Kantenlisten-CSV; Visualisierung in **Gephi** (Layout, Louvain-Färbung, Filter) → Screenshots für die Präsentation
-- [ ] Kennzahlentabelle: Knoten, Kanten, Dichte, Komponenten, Giant Component, Durchmesser, Clustering
-
-**Achtung:** Jeder Artikel erzeugt eine Clique über seine Keyphrases → Clustering ist künstlich hoch. Offenlegen und gegen ein Nullmodell stellen (Konfigurationsmodell auf dem bipartiten Graphen).
+- [x] Two-Mode Artikel–Keyword und Artikel–Person, Projektionen mit Kookkurrenz, Newman und Salton
+- [x] k-NN-Backbone, Knotenattribute (Ressort, df, Typ, erstes Jahr, Likes-/Kommentar-Median), Export `Graphen/*.gexf` + CSV
+- [x] Nullmodell gegen das Clique-Artefakt, Kennzahlentabelle
+- [ ] Schwellen (`MIN_DF`, `MIN_ANZAHL`, `BACKBONE_K`) auf dem Vollbestand festlegen und begründen
+- [ ] Visualisierung in **Gephi** (Layout, Louvain-Färbung, Filter) → Screenshots für die Präsentation
 
 ### Phase 5 · Analysen und Hypothesentests (07.–20.12.)
 
-`src/03_analyse_*.ipynb`. Jede Analyse mit **Frage → Methode → Resultat → Interpretation für 20 Minuten**.
+In `src/02_keyword_netz.ipynb` und `src/03_autoren_netz.ipynb` (Code vorhanden). Jede Analyse mit **Frage → Methode → Resultat → Interpretation für 20 Minuten**.
 
 | | These | Methode (Skript-Kapitel) | Test |
 |---|---|---|---|
 | **H1** | Krisenjahre (2020 Covid, 2022 Ukraine) zentralisieren die Agenda | Degree-/Betweenness-Zentralisierung, Louvain-Modularität über Seeds (Kap. 5, 7) | Krisenjahre vs. Verteilung der übrigen Jahre, Referenznetze (Kap. 11.3.4) |
 | **H2** | Ressorts sind semantische Silos, wenige Brückenbegriffe | kategorische Assortativität nach Ressort, Betweenness, Structural Holes / Burt (Kap. 1.5.2, 6, 10.4) | Label-Permutation, QAP (Kap. 11.3.2–11.3.3) |
 | **H3** | Neue Themenverbindungen sind vorhersagbar, Adamic-Adar > Preferential Attachment | CN, Jaccard, RA, AA, PA auf Zeitfenstern (Kap. 12) | Precision@k / AUC, Bootstrap |
+| **H4** | Die Redaktion arbeitet in ressortgebundenen Teams; Themencluster unterscheiden sich in den Reaktionen | Co-Autorennetz, Autoren-Themennetz (Kosinus), Louvain, Assortativität; Reaktions-Mediane pro Community (ab Juni 2020) | Permutationstest |
 
 Ergänzend für die Vielfalt:
 
@@ -165,9 +166,9 @@ Ergänzend für die Vielfalt:
 
 | KW | Datum | Phase | Ergebnis |
 |---|---|---|---|
-| 46 | 12.–15.11. | 0 Sofort | Meilenstein eingereicht, Termin bestätigt, KI-Log läuft |
-| 47 | 16.–22.11. | 1 Pilot & Crawl | Kandidatenschicht in SQLite |
-| 48 | 23.–29.11. | 2 Keyphrases + 3 EDA | `keyphrases.parquet`, `01_eda.ipynb` |
+| 46 | 12.–15.11. | 0 Sofort, 1 Crawl | Meilenstein eingereicht, Termin bestätigt, Vollcrawl fertig |
+| 47 | 16.–22.11. | 2 Keywords/Personen | Keywords und Personen auf dem Vollbestand justiert |
+| 48 | 23.–29.11. | 3 EDA | `01_eda.ipynb` mit echten Zahlen, Stichprobe geprüft |
 | 49 | 30.11.–06.12. | 4 Netzwerk | `.gexf`-Dateien, Kennzahlentabelle, Gephi-Bilder |
 | 50–51 | 07.–20.12. | 5 Analysen | H1–H3 mit Tests und Interpretation |
 | 52–1 | 21.12.–03.01. | 6 Abgabe | Präsentation aufgenommen, Paket in Teams |
@@ -180,7 +181,7 @@ Puffer: Phase 5 kann auf H1 + H2 + Zentralitäten/Communities reduziert werden, 
 
 | Risiko | Gegenmassnahme |
 |---|---|
-| Parser scheitert an alten Layouts (2010–2015) | Pilot über alle Jahrgänge **vor** dem Hauptlauf |
+| Parser scheitert an Layouts | ✅ Pilot 2003–2026 gelaufen; Zeitraum ab 2020 hat ein einheitliches CMS |
 | 20min.ch blockiert / drosselt | User-Agent gesetzt, Backoff vorhanden; Workers niedrig halten, über Nacht laufen lassen |
 | Keyphrases zu verrauscht → Netz unbrauchbar | Stoppliste und Ranking iterativ auf der Kandidatenschicht, kein Neu-Crawl nötig |
 | Projektionsnetz zu dicht (Altdaten: Dichte 0.34) | Normalisierung + Sparsifizierung, Filter in der Präsentation erklären |

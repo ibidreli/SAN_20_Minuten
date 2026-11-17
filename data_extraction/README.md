@@ -1,6 +1,6 @@
 # Datenextraktion 20 Minuten
 
-Die Pipeline hat drei Schritte:
+Die Pipeline hat vier Schritte:
 
 1. `get_data.py` sammelt die Artikel-URLs aus dem Tagesarchiv
    (`20min.ch/sitemap/JJJJ/MM/TT`) in `data/20min_artikel_neu.csv` und
@@ -8,8 +8,12 @@ Die Pipeline hat drei Schritte:
 2. `fetch_articles.py` ruft die Artikel ab und speichert pro Artikel
    Metadaten, Autoren und alle Keyword-Kandidaten in SQLite.
 3. `keywords.py` wählt aus den Kandidaten die besten Keywords pro Artikel
-   und schreibt die Tabelle `keywords`. Dieser Schritt ist beliebig oft
-   wiederholbar, ohne neu zu crawlen.
+   und schreibt die Tabelle `keywords`.
+4. `autoren.py` führt Autorennamen, Kürzel und IDs zu Personen zusammen und
+   schreibt die Tabellen `personen` und `article_persons`.
+
+Die Schritte 3 und 4 sind beliebig oft wiederholbar, ohne neu zu crawlen.
+Die Analyse liegt in `src/` (siehe unten).
 
 Der Artikeltext bleibt ausschliesslich im Arbeitsspeicher und wird nach der
 Extraktion verworfen. Alles, was später aus ihm gebraucht wird (Wortanzahl,
@@ -71,6 +75,17 @@ Bonus für Titel, Lead und Namen. Ein Keyword muss in mindestens zwei Artikeln
 vorkommen (`--min-df`). `typ` (`PER`, `ORG`, `LOC`, `MISC`, `THEMA`) stammt
 aus der spaCy-Erkennung und ist in etwa 10–15 % der Fälle falsch.
 
+**`personen`** und **`article_persons`** (aus `autoren.py`): eine Person pro
+Mensch statt pro Schreibweise. Namen mit ID werden über die ID vereinigt,
+abgekürzte Namen (`B. Zanni`) über Initiale und Nachname, Kürzel (`jcg`) über
+alle Artikel, in denen Name und Kürzel gemeinsam stehen. Mehrdeutige Kürzel
+entscheidet die zeitlich nächste Person (höchstens ein Jahr Abstand).
+Unauflösbare Kürzel bleiben als `kürzel:xyz` eine eigene Person. `rolle` ist
+`autor` (Byline) oder `quelle` (Kürzel in der Quellenzeile, z. B. `dpa/roy`),
+`methode` sagt, wie die Person bestimmt wurde (`id`, `name`, `initiale`,
+`kuerzel`, `kuerzel_zeit`, `mehrdeutig`, `ungeloest`). Agenturen, "20 Minuten"
+und Ortsangaben ("aus Davos") sind keine Personen.
+
 Metriken, Autoren und Ressort-Pfad stammen aus dem eingebetteten
 Next.js-Zustand (`__NEXT_DATA__`) bzw. dem JSON-LD-Breadcrumb, weil die Seite
 die Buttons erst im Browser rendert.
@@ -89,8 +104,11 @@ Seiten ohne `<article>` (Themen- und Sonderseiten) landen als `failed`.
 Diese Punkte sind keine Fehler der Extraktion, sondern so liefert 20min die
 Daten. Sie bestimmen, welche Aussagen die Analyse machen kann.
 
-- **Interaktionen** sind erst ab 2020 brauchbar. Vorher sind Likes und Shares
-  meist 0 und Kommentare durchgehend gesperrt (archiviert). Neue Artikel
+- **Interaktionen** gibt es erst ab Juni 2020 (Reaktionssystem des neuen CMS).
+  Vorher liefert die Seite 0 Likes und Shares und keine Kommentare; das ist
+  nicht gemessen, nicht "keine Reaktion". `src/daten.py` setzt diese Werte
+  deshalb auf fehlend (`REAKTIONEN_AB`). Fehlende `kommentare` heissen auch
+  später: Kommentarfunktion aus (die Seite meldet dann 0). Neue Artikel
   sammeln in den ersten Tagen noch Reaktionen; für Vergleiche nur Artikel
   verwenden, die beim Abruf mindestens eine Woche alt waren.
 - **Autoren** hängen vom Redaktionssystem ab: 2003–2009 oft der Platzhalter
@@ -152,6 +170,12 @@ Keywords bilden (schreibt die Tabelle `keywords` neu):
 python -m data_extraction.keywords --db data/articles.sqlite --top-k 8 --min-df 2
 ```
 
+Personen zusammenführen (schreibt `personen` und `article_persons` neu):
+
+```sh
+python -m data_extraction.autoren --db data/articles.sqlite
+```
+
 Ohne `--input` setzt ein Neustart eine vorhandene Datenbank fort. `--dry-run`
 zeigt den Plan, ohne das Modell zu laden oder zu schreiben. Ältere
 Datenbanken erhalten neu hinzugekommene Spalten beim Öffnen automatisch.
@@ -201,6 +225,25 @@ Die Freigabe des Vollcrawls erfolgt durch das Team, nicht durch das Skript.
 | `db.py` | SQLite-Schema, Migration, Transaktionen, Wiederaufnahme |
 | `fetch_articles.py` | Ablauf, Batching, Signalbehandlung, CLI |
 | `keywords.py` | Keyword-Auswahl aus den Kandidaten, CLI |
+| `autoren.py` | Personen aus Namen, Kürzeln und IDs, CLI |
 
 `handle_data.py` delegiert an denselben CLI. Kein Modul startet beim Import
 Arbeit.
+
+## Analyse (`src/`)
+
+| Datei | Inhalt |
+|---|---|
+| `daten.py` | lädt die Tabellen als DataFrames (nur lesend, auch während eines Crawls); Jahr/Monat in Schweizer Zeit, Reaktionen vor Juni 2020 fehlend, `hauptressort` (elf Hauptressorts, Rest „andere“) |
+| `netzwerk.py` | Projektionen (Kookkurrenz, Newman, Salton), Keyword-, Co-Autoren- und Autoren-Themennetz, Backbone, Kennzahlen, Zentralitäten, Communities, Assortativität mit Permutationstest, Nullmodell, Link Prediction, Export (GEXF + CSV) |
+| `grafik.py` | einheitlicher Stil (`grafik.stil()`), feste Ressortfarben, Netzzeichnung, Balken, Heatmaps, Permutationstest |
+| `01_eda.ipynb` | Datenqualität, Verteilungen, Plausibilitätsstichprobe, Vergleich mit der alten CSV, Massnahmen |
+| `02_keyword_netz.ipynb` | Themennetz, H1–H3 |
+| `03_autoren_netz.ipynb` | Co-Autorschaft, thematische Nähe, Reaktionen nach Thema, H4 |
+| `keyword_landkarte.py` | Keyword-Landkarte im Stil von SpiegelMining (Gewicht „gegenseitige Wichtigkeit“, lokale Ausdünnung, Ressortfarben) als GEXF für Gephi: `python src/keyword_landkarte.py` |
+
+Die Notebooks wählen die Datenbank selbst (`daten.standard_db()`):
+`data/articles.sqlite`, sobald dort Keywords und Personen gebildet sind, sonst
+die Kopie `data/articles_snapshot.sqlite`. Die Umgebungsvariable `SAN_DB` hat
+Vorrang. Jeder Abschnitt beginnt mit der Frage, dem Grund und unserer Erwartung,
+danach folgen Code, Werte und Grafiken und erst dann die Reflexion der Ergebnisse. Die Grafiken stehen nur im Notebook; Netze für Gephi landen in `Graphen/`.

@@ -122,6 +122,8 @@ celerybeat.pid
 *.sage.py
 *.csv
 *.ipynb
+# Analyse-Notebooks gehören zur Abgabe
+!src/*.ipynb
 
 # Environments
 .env

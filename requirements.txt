@@ -12,3 +12,10 @@ spacy==3.8.16
 
 # Sprachmodell für spacy.load("de_core_news_lg") in candidates.py
 de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
+
+# Analyse in src/ (daten.py, netzwerk.py, Notebooks)
+pandas==3.0.0
+networkx==3.6.1
+matplotlib==3.10.8
+scipy==1.17.0
+ipykernel==7.2.0

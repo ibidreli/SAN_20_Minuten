@@ -59,7 +59,7 @@ STOPWORDS = frozenset(
     sprecher sprecherin leute mensch person mann frau haus leben welt problem
     idee meinung rolle form geschichte grösse nähe hilfe weg schluss blick
     20 minuten 20 minute news push whatsapp leserreporter app newsletter
-    news-scout news-scouts werbung umfrage community
+    news-scout news-scouts werbung umfrage community ticker liveticker
     """.split()
 ) | frozenset({"20 minuten", "20 minute"})
 # Zeitangaben wie "Donnerstagmorgen", "Mittwochabend", "Nacht auf Sonntag".
